@@ -1,0 +1,298 @@
+use slotmap::SlotMap;
+
+use super::node::{DirtyFlags, Node, NodeId};
+use super::render_list::RenderList;
+use crate::renderer::renderer2d::shapes::{Color, ShapeType, FLOATS_PER_INSTANCE};
+
+pub(crate) enum SyncResult {
+    Clean,
+    Incremental(Vec<(usize, usize)>),
+    FullRewrite,
+}
+
+pub struct Scene {
+    nodes: SlotMap<NodeId, Node>,
+    roots: Vec<NodeId>,
+    dirty_nodes: Vec<NodeId>,
+    tree_dirty: bool,
+    render_list: RenderList,
+    generation: u64,
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Scene {
+    pub fn new() -> Self {
+        Self {
+            nodes: SlotMap::with_key(),
+            roots: Vec::new(),
+            dirty_nodes: Vec::new(),
+            tree_dirty: false,
+            render_list: RenderList::new(),
+            generation: 0,
+        }
+    }
+
+    pub fn add(&mut self, shape_type: ShapeType) -> NodeId {
+        let node = Node::new(shape_type);
+        let id = self.nodes.insert(node);
+        self.roots.push(id);
+        self.tree_dirty = true;
+        id
+    }
+
+    pub fn add_child(&mut self, parent: NodeId, shape_type: ShapeType) -> Option<NodeId> {
+        if !self.nodes.contains_key(parent) {
+            return None;
+        }
+        let mut node = Node::new(shape_type);
+        node.parent = Some(parent);
+        let id = self.nodes.insert(node);
+        self.nodes[parent].children.push(id);
+        self.tree_dirty = true;
+        Some(id)
+    }
+
+    pub fn remove(&mut self, id: NodeId) -> bool {
+        let Some(node) = self.nodes.remove(id) else {
+            return false;
+        };
+
+        if let Some(parent_id) = node.parent {
+            if let Some(parent) = self.nodes.get_mut(parent_id) {
+                parent.children.retain(|&c| c != id);
+            }
+        } else {
+            self.roots.retain(|&r| r != id);
+        }
+
+        // Iterative subtree removal
+        let mut stack: Vec<NodeId> = node.children;
+        while let Some(child_id) = stack.pop() {
+            if let Some(child) = self.nodes.remove(child_id) {
+                stack.extend(child.children);
+            }
+        }
+
+        self.tree_dirty = true;
+        true
+    }
+
+    pub fn set_position(&mut self, id: NodeId, position: [f32; 2]) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.position != position
+        {
+            node.position = position;
+            node.dirty |= DirtyFlags::TRANSFORM;
+            self.track_dirty(id);
+            self.propagate_transform_dirty(id);
+        }
+    }
+
+    pub fn set_size(&mut self, id: NodeId, size: [f32; 2]) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.size != size
+        {
+            node.size = size;
+            node.dirty |= DirtyFlags::VISUAL;
+            self.track_dirty(id);
+        }
+    }
+
+    pub fn set_color(&mut self, id: NodeId, color: Color) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.color != color
+        {
+            node.color = color;
+            node.dirty |= DirtyFlags::VISUAL;
+            self.track_dirty(id);
+        }
+    }
+
+    pub fn set_corner_radius(&mut self, id: NodeId, radius: f32) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.corner_radius != radius
+        {
+            node.corner_radius = radius;
+            node.dirty |= DirtyFlags::VISUAL;
+            self.track_dirty(id);
+        }
+    }
+
+    pub fn set_visible(&mut self, id: NodeId, visible: bool) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.visible != visible
+        {
+            node.visible = visible;
+            self.tree_dirty = true;
+        }
+    }
+
+    pub fn set_z_index(&mut self, id: NodeId, z_index: i32) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.z_index != z_index
+        {
+            node.z_index = z_index;
+            self.tree_dirty = true;
+        }
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.tree_dirty || !self.dirty_nodes.is_empty()
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn render_list(&self) -> &RenderList {
+        &self.render_list
+    }
+
+    fn track_dirty(&mut self, id: NodeId) {
+        self.dirty_nodes.push(id);
+    }
+
+    fn propagate_transform_dirty(&mut self, root: NodeId) {
+        // Iterative BFS to mark all descendants as TRANSFORM-dirty
+        let mut stack = Vec::new();
+        if let Some(node) = self.nodes.get(root) {
+            stack.extend_from_slice(&node.children);
+        }
+        while let Some(id) = stack.pop() {
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.dirty |= DirtyFlags::TRANSFORM;
+                self.dirty_nodes.push(id);
+            }
+            if let Some(node) = self.nodes.get(id) {
+                stack.extend_from_slice(&node.children);
+            }
+        }
+    }
+
+    fn recompute_world_positions(&mut self) {
+        // Iterative DFS with parent world position on the stack
+        let mut stack: Vec<(NodeId, [f32; 2])> = self
+            .roots
+            .iter()
+            .map(|&id| (id, [0.0, 0.0]))
+            .collect();
+
+        while let Some((id, parent_pos)) = stack.pop() {
+            let Some(node) = self.nodes.get_mut(id) else {
+                continue;
+            };
+            node.world_position = [
+                parent_pos[0] + node.position[0],
+                parent_pos[1] + node.position[1],
+            ];
+            let wp = node.world_position;
+            let children = &node.children;
+            for &child_id in children {
+                stack.push((child_id, wp));
+            }
+        }
+    }
+
+    fn recompute_world_position_subtree(&mut self, id: NodeId) {
+        let parent_world_pos = self
+            .nodes
+            .get(id)
+            .and_then(|n| n.parent)
+            .and_then(|pid| self.nodes.get(pid))
+            .map(|p| p.world_position)
+            .unwrap_or([0.0, 0.0]);
+
+        let mut stack = vec![(id, parent_world_pos)];
+        while let Some((nid, parent_pos)) = stack.pop() {
+            let Some(node) = self.nodes.get_mut(nid) else {
+                continue;
+            };
+            node.world_position = [
+                parent_pos[0] + node.position[0],
+                parent_pos[1] + node.position[1],
+            ];
+            let wp = node.world_position;
+            let children = &node.children;
+            for &child_id in children {
+                stack.push((child_id, wp));
+            }
+        }
+    }
+
+    pub(crate) fn sync(&mut self) -> SyncResult {
+        if !self.is_dirty() {
+            return SyncResult::Clean;
+        }
+
+        if self.tree_dirty {
+            self.recompute_world_positions();
+            self.render_list.rebuild(&self.nodes, &self.roots);
+
+            for (i, &node_id) in self.render_list.index_to_node().iter().enumerate() {
+                if let Some(node) = self.nodes.get_mut(node_id) {
+                    node.render_index = Some(i as u32);
+                }
+            }
+
+            // Clear dirty flags only on tracked dirty nodes
+            for &id in &self.dirty_nodes {
+                if let Some(node) = self.nodes.get_mut(id) {
+                    node.dirty = DirtyFlags::empty();
+                }
+            }
+            self.dirty_nodes.clear();
+            self.tree_dirty = false;
+            self.generation += 1;
+            return SyncResult::FullRewrite;
+        }
+
+        // Only TRANSFORM and/or VISUAL changes -- use tracked dirty_nodes
+        let dirty_nodes = std::mem::take(&mut self.dirty_nodes);
+
+        // Recompute world positions for TRANSFORM-dirty nodes
+        for &id in &dirty_nodes {
+            if let Some(node) = self.nodes.get(id)
+                && node.dirty.contains(DirtyFlags::TRANSFORM)
+            {
+                self.recompute_world_position_subtree(id);
+            }
+        }
+
+        // Collect updated instance data and byte ranges
+        let stride = FLOATS_PER_INSTANCE * size_of::<f32>();
+        let updates: Vec<(usize, [f32; FLOATS_PER_INSTANCE])> = dirty_nodes
+            .iter()
+            .filter_map(|&id| {
+                let node = self.nodes.get(id)?;
+                node.render_index
+                    .map(|idx| (idx as usize, node.to_instance_data()))
+            })
+            .collect();
+
+        let mut ranges = Vec::with_capacity(updates.len());
+        for (render_idx, data) in &updates {
+            self.render_list.update_entry(*render_idx, data);
+            ranges.push((render_idx * stride, stride));
+        }
+
+        for &id in &dirty_nodes {
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.dirty = DirtyFlags::empty();
+            }
+        }
+        self.generation += 1;
+
+        if ranges.is_empty() {
+            SyncResult::Clean
+        } else if ranges.len() > self.render_list.instance_count() as usize / 2 {
+            SyncResult::FullRewrite
+        } else {
+            SyncResult::Incremental(ranges)
+        }
+    }
+}

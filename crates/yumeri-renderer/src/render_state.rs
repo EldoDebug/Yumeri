@@ -10,12 +10,15 @@ use crate::gpu::GpuContext;
 use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder};
 use crate::renderer::renderer2d::Renderer2D;
 use crate::renderer::Renderer;
+use crate::ui::renderer::UiRenderer;
+use crate::ui::Scene;
 
 pub struct WindowRenderState {
     surface: Surface,
     swapchain: Swapchain,
     frame_sync: FrameSynchronizer,
     renderer2d: Option<Renderer2D>,
+    ui_renderer: Option<UiRenderer>,
 }
 
 impl WindowRenderState {
@@ -26,6 +29,7 @@ impl WindowRenderState {
         width: u32,
         height: u32,
         enable_2d: bool,
+        enable_ui: bool,
     ) -> Result<Self> {
         let surface = Surface::new(gpu, display_handle, window_handle)?;
         let swapchain = Swapchain::new(gpu, &surface, width, height)?;
@@ -39,11 +43,20 @@ impl WindowRenderState {
             None
         };
 
+        let ui_renderer = if enable_ui {
+            let mut r = UiRenderer::new();
+            r.initialize(gpu, swapchain.format().format)?;
+            Some(r)
+        } else {
+            None
+        };
+
         Ok(Self {
             surface,
             swapchain,
             frame_sync,
             renderer2d,
+            ui_renderer,
         })
     }
 
@@ -51,6 +64,7 @@ impl WindowRenderState {
         &mut self,
         gpu: &GpuContext,
         on_render2d: impl FnOnce(&mut RenderContext2D),
+        ui_scene: Option<&mut Scene>,
     ) -> Result<()> {
         let extent = self.swapchain.extent();
         if extent.width == 0 || extent.height == 0 {
@@ -81,6 +95,12 @@ impl WindowRenderState {
         let mut builder = RenderGraphBuilder::new();
         let backbuffer = builder.import_backbuffer();
 
+        // UI pass first (drawn underneath)
+        if let (Some(ui_r), Some(scene)) = (&mut self.ui_renderer, ui_scene) {
+            ui_r.sync_and_register(scene, &mut builder, backbuffer, frame_index);
+        }
+
+        // 2D overlay pass (drawn on top)
         if let Some(r2d) = &mut self.renderer2d {
             r2d.register_passes(&mut builder, backbuffer, frame_index);
         }
@@ -125,6 +145,9 @@ impl WindowRenderState {
         }
         if let Some(r2d) = &mut self.renderer2d {
             r2d.destroy(gpu);
+        }
+        if let Some(ui_r) = &mut self.ui_renderer {
+            ui_r.destroy(gpu);
         }
     }
 }

@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
@@ -14,6 +14,15 @@ impl Color {
     pub fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(i32)]
+pub enum ShapeType {
+    None = -1,
+    Rect = 0,
+    RoundedRect = 1,
+    Circle = 2,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -46,48 +55,41 @@ pub(crate) enum Shape {
 
 // GPU-side instance data: 10 floats per instance
 // [pos.x, pos.y, size.x, size.y, corner_radius, shape_type, r, g, b, a]
-// shape_type: 0.0 = Rect, 1.0 = RoundedRect, 2.0 = Circle
 pub(crate) const FLOATS_PER_INSTANCE: usize = 10;
+
+pub(crate) fn pack_instance(
+    position: [f32; 2],
+    size: [f32; 2],
+    corner_radius: f32,
+    shape_type: ShapeType,
+    color: Color,
+) -> [f32; FLOATS_PER_INSTANCE] {
+    [
+        position[0],
+        position[1],
+        size[0],
+        size[1],
+        corner_radius,
+        shape_type as i32 as f32,
+        color.r,
+        color.g,
+        color.b,
+        color.a,
+    ]
+}
 
 impl Shape {
     pub(crate) fn to_instance_data(&self) -> [f32; FLOATS_PER_INSTANCE] {
         match self {
-            Shape::Rect(r) => [
-                r.position[0],
-                r.position[1],
-                r.size[0],
-                r.size[1],
-                0.0, // no corner radius
-                0.0, // shape_type = Rect
-                r.color.r,
-                r.color.g,
-                r.color.b,
-                r.color.a,
-            ],
-            Shape::RoundedRect(r) => [
-                r.position[0],
-                r.position[1],
-                r.size[0],
-                r.size[1],
-                r.corner_radius,
-                1.0, // shape_type = RoundedRect
-                r.color.r,
-                r.color.g,
-                r.color.b,
-                r.color.a,
-            ],
-            Shape::Circle(c) => [
-                c.position[0],
-                c.position[1],
-                c.radius,
-                c.radius, // size = radius for circle
-                0.0,
-                2.0, // shape_type = Circle
-                c.color.r,
-                c.color.g,
-                c.color.b,
-                c.color.a,
-            ],
+            Shape::Rect(r) => {
+                pack_instance(r.position, r.size, 0.0, ShapeType::Rect, r.color)
+            }
+            Shape::RoundedRect(r) => {
+                pack_instance(r.position, r.size, r.corner_radius, ShapeType::RoundedRect, r.color)
+            }
+            Shape::Circle(c) => {
+                pack_instance(c.position, [c.radius, c.radius], 0.0, ShapeType::Circle, c.color)
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, MouseButton};
 use winit::window::WindowId;
 use yumeri_renderer::RenderContext2D;
+use yumeri_renderer::ui::UiContext;
 
 use crate::application::AppRequest;
 use crate::window::{Window, WindowBuilder, WindowContext, WindowEntry};
@@ -67,6 +68,10 @@ pub trait WindowDelegate {
     }
 
     fn on_render2d(&mut self, ctx: &mut RenderContext2D) {
+        let _ = ctx;
+    }
+
+    fn on_ui_setup(&mut self, ctx: &mut UiContext) {
         let _ = ctx;
     }
 }

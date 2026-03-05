@@ -6,10 +6,12 @@ edition = "2024"
 [dependencies]
 ash = { version = "0.38.0", default-features = false, features = ["std", "debug", "loaded"] }
 ash-window = "0.13.0"
+bitflags = "2.11.0"
 bytemuck = "1"
 gpu-allocator = { version = "0.28.0", features = ["vulkan"] }
 log = "0.4"
 raw-window-handle = "0.6.2"
+slotmap = "1.1.1"
 thiserror = "2"
 
 [build-dependencies]

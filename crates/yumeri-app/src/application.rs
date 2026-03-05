@@ -91,7 +91,8 @@ impl Runner {
         builder: WindowBuilder,
     ) -> Result<WindowId, AppError> {
         let enable_2d = builder.enable_renderer_2d;
-        let needs_rendering = enable_2d;
+        let enable_ui = builder.enable_ui_renderer;
+        let needs_rendering = enable_2d || enable_ui;
 
         let winit_window = event_loop.create_window(builder.attrs)?;
         let id = winit_window.id();
@@ -109,6 +110,7 @@ impl Runner {
                     size.width,
                     size.height,
                     enable_2d,
+                    enable_ui,
                 ) {
                     Ok(state) => Some(state),
                     Err(e) => {
@@ -123,11 +125,33 @@ impl Runner {
             None
         };
 
-        let entry = WindowEntry {
+        let ui_scene = if enable_ui {
+            Some(yumeri_renderer::ui::Scene::new())
+        } else {
+            None
+        };
+
+        let mut entry = WindowEntry {
             window: Window::new(winit_window),
             delegate: builder.delegate,
             render_state,
+            ui_scene,
         };
+
+        // Call on_ui_setup for UI-enabled windows
+        let surface_size = entry.window.surface_size();
+        if let (Some(d), Some(scene)) = (&mut entry.delegate, &mut entry.ui_scene) {
+            let mut ui_ctx = yumeri_renderer::ui::UiContext::new(
+                scene,
+                (surface_size.width, surface_size.height),
+            );
+            d.on_ui_setup(&mut ui_ctx);
+        }
+
+        if entry.ui_scene.as_ref().is_some_and(|s| s.is_dirty()) {
+            entry.window.request_redraw();
+        }
+
         self.windows.insert(id, entry);
         Ok(id)
     }
@@ -218,12 +242,14 @@ impl ApplicationHandler for Runner {
         };
         let mut delegate = entry.delegate.take();
         let mut render_state = entry.render_state.take();
+        let mut ui_scene = entry.ui_scene.take();
 
         if let Some(d) = &mut delegate {
             if matches!(event, WindowEvent::CloseRequested) {
                 let response = {
                     let entry = self.windows.get(&window_id).unwrap();
-                    let mut ctx = WindowContext::new(&entry.window, &mut self.requests);
+                    let mut ctx =
+                        WindowContext::new(&entry.window, &mut self.requests, ui_scene.as_mut());
                     d.on_close_requested(&mut ctx)
                 };
                 if response == CloseResponse::Close {
@@ -248,9 +274,13 @@ impl ApplicationHandler for Runner {
                 match &event {
                     WindowEvent::RedrawRequested => {
                         if let (Some(gpu), Some(rs)) = (&self.gpu_context, &mut render_state) {
-                            let result = rs.render_frame(gpu, |ctx| {
-                                d.on_render2d(ctx);
-                            });
+                            let result = rs.render_frame(
+                                gpu,
+                                |ctx| {
+                                    d.on_render2d(ctx);
+                                },
+                                ui_scene.as_mut(),
+                            );
                             if let Err(e) = result {
                                 eprintln!("Render error: {e}");
                             }
@@ -268,7 +298,8 @@ impl ApplicationHandler for Runner {
 
                 // Delegate dispatch with shared context
                 let entry = self.windows.get(&window_id).unwrap();
-                let mut ctx = WindowContext::new(&entry.window, &mut self.requests);
+                let mut ctx =
+                    WindowContext::new(&entry.window, &mut self.requests, ui_scene.as_mut());
                 match event {
                     WindowEvent::RedrawRequested => d.on_redraw_requested(&mut ctx),
                     WindowEvent::Resized(size) => d.on_resized(&mut ctx, size),
@@ -295,9 +326,17 @@ impl ApplicationHandler for Runner {
             }
         }
 
+        // Auto request_redraw when UI scene is dirty
+        if ui_scene.as_ref().is_some_and(|s| s.is_dirty())
+            && let Some(entry) = self.windows.get(&window_id)
+        {
+            entry.window.request_redraw();
+        }
+
         if let Some(entry) = self.windows.get_mut(&window_id) {
             entry.delegate = delegate;
             entry.render_state = render_state;
+            entry.ui_scene = ui_scene;
         }
 
         self.process_requests(event_loop);

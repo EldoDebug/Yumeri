@@ -44,6 +44,7 @@ pub(crate) struct WindowEntry {
     pub(crate) window: Window,
     pub(crate) delegate: Option<Box<dyn WindowDelegate>>,
     pub(crate) render_state: Option<yumeri_renderer::WindowRenderState>,
+    pub(crate) ui_scene: Option<yumeri_renderer::ui::Scene>,
 }
 
 /// Builder for creating windows with a fluent API.
@@ -51,6 +52,7 @@ pub struct WindowBuilder {
     pub(crate) attrs: winit::window::WindowAttributes,
     pub(crate) delegate: Option<Box<dyn WindowDelegate>>,
     pub(crate) enable_renderer_2d: bool,
+    pub(crate) enable_ui_renderer: bool,
 }
 
 impl WindowBuilder {
@@ -59,6 +61,7 @@ impl WindowBuilder {
             attrs: winit::window::Window::default_attributes(),
             delegate: None,
             enable_renderer_2d: false,
+            enable_ui_renderer: false,
         }
     }
 
@@ -122,6 +125,11 @@ impl WindowBuilder {
         self.enable_renderer_2d = true;
         self
     }
+
+    pub fn with_ui_renderer(mut self) -> Self {
+        self.enable_ui_renderer = true;
+        self
+    }
 }
 
 impl Default for WindowBuilder {
@@ -137,11 +145,20 @@ impl Default for WindowBuilder {
 pub struct WindowContext<'a> {
     window: &'a Window,
     requests: &'a mut Vec<AppRequest>,
+    ui_scene: Option<&'a mut yumeri_renderer::ui::Scene>,
 }
 
 impl<'a> WindowContext<'a> {
-    pub(crate) fn new(window: &'a Window, requests: &'a mut Vec<AppRequest>) -> Self {
-        Self { window, requests }
+    pub(crate) fn new(
+        window: &'a Window,
+        requests: &'a mut Vec<AppRequest>,
+        ui_scene: Option<&'a mut yumeri_renderer::ui::Scene>,
+    ) -> Self {
+        Self {
+            window,
+            requests,
+            ui_scene,
+        }
     }
 
     pub fn window(&self) -> &Window {
@@ -154,6 +171,10 @@ impl<'a> WindowContext<'a> {
 
     pub fn request_redraw(&self) {
         self.window.request_redraw();
+    }
+
+    pub fn ui_scene(&mut self) -> Option<&mut yumeri_renderer::ui::Scene> {
+        self.ui_scene.as_deref_mut()
     }
 
     pub fn create_window(&mut self, builder: WindowBuilder) {
