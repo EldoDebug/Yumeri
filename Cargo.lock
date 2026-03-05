@@ -2185,6 +2185,7 @@ dependencies = [
  "shaderc",
  "slotmap",
  "thiserror 2.0.18",
+ "yumeri-image",
 ]
 
 [[package]]

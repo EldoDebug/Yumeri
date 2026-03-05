@@ -8,11 +8,15 @@ const FRAG_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sdf_2d.frag.sp
 pub(crate) struct Pipeline2D {
     pub pipeline: vk::Pipeline,
     pub pipeline_layout: vk::PipelineLayout,
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub ssbo_descriptor_set_layout: vk::DescriptorSetLayout,
 }
 
 impl Pipeline2D {
-    pub fn new(device: &ash::Device, color_format: vk::Format) -> Result<Self> {
+    pub fn new(
+        device: &ash::Device,
+        color_format: vk::Format,
+        texture_descriptor_set_layout: vk::DescriptorSetLayout,
+    ) -> Result<Self> {
         unsafe {
             let vert_module = Self::create_shader_module(device, VERT_SPV)?;
             let frag_module = Self::create_shader_module(device, FRAG_SPV)?;
@@ -30,15 +34,16 @@ impl Pipeline2D {
                     .name(entry_point),
             ];
 
-            // Descriptor set layout: 1 SSBO at binding 0
-            let bindings = [vk::DescriptorSetLayoutBinding::default()
+            // Set 0: SSBO at binding 0
+            let ssbo_binding = vk::DescriptorSetLayoutBinding::default()
                 .binding(0)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX)];
+                .stage_flags(vk::ShaderStageFlags::VERTEX);
 
-            let descriptor_set_layout = device.create_descriptor_set_layout(
-                &vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings),
+            let ssbo_descriptor_set_layout = device.create_descriptor_set_layout(
+                &vk::DescriptorSetLayoutCreateInfo::default()
+                    .bindings(std::slice::from_ref(&ssbo_binding)),
                 None,
             )?;
 
@@ -48,7 +53,8 @@ impl Pipeline2D {
                 .offset(0)
                 .size(8);
 
-            let set_layouts = [descriptor_set_layout];
+            // Set 0 = SSBO, Set 1 = texture array
+            let set_layouts = [ssbo_descriptor_set_layout, texture_descriptor_set_layout];
             let pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
                     .set_layouts(&set_layouts)
@@ -125,7 +131,7 @@ impl Pipeline2D {
             Ok(Self {
                 pipeline,
                 pipeline_layout,
-                descriptor_set_layout,
+                ssbo_descriptor_set_layout,
             })
         }
     }
@@ -145,7 +151,7 @@ impl Pipeline2D {
         unsafe {
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
-            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            device.destroy_descriptor_set_layout(self.ssbo_descriptor_set_layout, None);
         }
     }
 }

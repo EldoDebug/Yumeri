@@ -31,6 +31,12 @@ impl VulkanDevice {
 
         let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
 
+        let mut vulkan_12_features = vk::PhysicalDeviceVulkan12Features::default()
+            .descriptor_binding_partially_bound(true)
+            .descriptor_binding_sampled_image_update_after_bind(true)
+            .runtime_descriptor_array(true)
+            .shader_sampled_image_array_non_uniform_indexing(true);
+
         let mut vulkan_13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
@@ -38,6 +44,7 @@ impl VulkanDevice {
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&device_extensions)
+            .push_next(&mut vulkan_12_features)
             .push_next(&mut vulkan_13_features);
 
         let device =

@@ -3,6 +3,7 @@ use slotmap::SlotMap;
 use super::node::{DirtyFlags, Node, NodeId};
 use super::render_list::RenderList;
 use crate::renderer::renderer2d::shapes::{Color, ShapeType, FLOATS_PER_INSTANCE};
+use crate::texture::{Texture, TextureId};
 
 pub(crate) enum SyncResult {
     Clean,
@@ -123,6 +124,16 @@ impl Scene {
         }
     }
 
+    pub fn set_texture(&mut self, id: NodeId, texture: Option<Texture>) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.texture != texture
+        {
+            node.texture = texture;
+            node.dirty |= DirtyFlags::VISUAL;
+            self.track_dirty(id);
+        }
+    }
+
     pub fn set_visible(&mut self, id: NodeId, visible: bool) {
         if let Some(node) = self.nodes.get_mut(id)
             && node.visible != visible
@@ -224,14 +235,17 @@ impl Scene {
         }
     }
 
-    pub(crate) fn sync(&mut self) -> SyncResult {
+    pub(crate) fn sync(
+        &mut self,
+        resolve: impl Fn(TextureId) -> u32,
+    ) -> SyncResult {
         if !self.is_dirty() {
             return SyncResult::Clean;
         }
 
         if self.tree_dirty {
             self.recompute_world_positions();
-            self.render_list.rebuild(&self.nodes, &self.roots);
+            self.render_list.rebuild(&self.nodes, &self.roots, &resolve);
 
             for (i, &node_id) in self.render_list.index_to_node().iter().enumerate() {
                 if let Some(node) = self.nodes.get_mut(node_id) {
@@ -270,7 +284,7 @@ impl Scene {
             .filter_map(|&id| {
                 let node = self.nodes.get(id)?;
                 node.render_index
-                    .map(|idx| (idx as usize, node.to_instance_data()))
+                    .map(|idx| (idx as usize, node.to_instance_data(&resolve)))
             })
             .collect();
 

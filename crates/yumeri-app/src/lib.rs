@@ -14,4 +14,5 @@ pub use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 pub use winit::window::WindowId;
 
 pub use yumeri_renderer::{self, Circle, Color, Rect, RenderContext2D, RoundedRect, ShapeType};
+pub use yumeri_renderer::{Texture, TextureId, UvRect};
 pub use yumeri_renderer::ui::{NodeId, Scene as UiScene, UiContext};

@@ -2,6 +2,7 @@ use slotmap::SlotMap;
 
 use super::node::{Node, NodeId};
 use crate::renderer::renderer2d::shapes::FLOATS_PER_INSTANCE;
+use crate::texture::TextureId;
 
 pub(crate) struct RenderList {
     instance_data: Vec<f32>,
@@ -24,13 +25,16 @@ impl RenderList {
         &self.index_to_node
     }
 
-    pub(crate) fn rebuild(&mut self, nodes: &SlotMap<NodeId, Node>, roots: &[NodeId]) {
+    pub(crate) fn rebuild(
+        &mut self,
+        nodes: &SlotMap<NodeId, Node>,
+        roots: &[NodeId],
+        resolve: &impl Fn(TextureId) -> u32,
+    ) {
         self.instance_data.clear();
         self.index_to_node.clear();
 
         // Iterative DFS with z-sorted children.
-        // Stack entries are pushed in reverse order so left-most (lowest z) children
-        // are processed first.
         let mut stack: Vec<NodeId> = Vec::new();
 
         // Push roots in reverse z-order (so lowest z pops first)
@@ -52,7 +56,8 @@ impl RenderList {
             }
 
             if node.is_renderable() {
-                self.instance_data.extend_from_slice(&node.to_instance_data());
+                self.instance_data
+                    .extend_from_slice(&node.to_instance_data(resolve));
                 self.index_to_node.push(node_id);
             }
 

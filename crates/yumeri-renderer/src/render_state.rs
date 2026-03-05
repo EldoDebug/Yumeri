@@ -9,7 +9,7 @@ use crate::gpu::swapchain::Swapchain;
 use crate::gpu::GpuContext;
 use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder};
 use crate::renderer::renderer2d::Renderer2D;
-use crate::renderer::Renderer;
+use crate::texture::store::TextureStore;
 use crate::ui::renderer::UiRenderer;
 use crate::ui::Scene;
 
@@ -19,6 +19,7 @@ pub struct WindowRenderState {
     frame_sync: FrameSynchronizer,
     renderer2d: Option<Renderer2D>,
     ui_renderer: Option<UiRenderer>,
+    texture_store: Option<TextureStore>,
 }
 
 impl WindowRenderState {
@@ -35,9 +36,18 @@ impl WindowRenderState {
         let swapchain = Swapchain::new(gpu, &surface, width, height)?;
         let frame_sync = FrameSynchronizer::new(gpu)?;
 
+        let needs_textures = enable_2d || enable_ui;
+        let texture_store = if needs_textures {
+            Some(TextureStore::new(gpu)?)
+        } else {
+            None
+        };
+
+        let tex_layout = texture_store.as_ref().map(|s| s.descriptor_set_layout());
+
         let renderer2d = if enable_2d {
             let mut r = Renderer2D::new();
-            r.initialize(gpu, swapchain.format().format)?;
+            r.initialize_with_textures(gpu, swapchain.format().format, tex_layout.unwrap())?;
             Some(r)
         } else {
             None
@@ -45,7 +55,7 @@ impl WindowRenderState {
 
         let ui_renderer = if enable_ui {
             let mut r = UiRenderer::new();
-            r.initialize(gpu, swapchain.format().format)?;
+            r.initialize(gpu, swapchain.format().format, tex_layout.unwrap())?;
             Some(r)
         } else {
             None
@@ -57,6 +67,7 @@ impl WindowRenderState {
             frame_sync,
             renderer2d,
             ui_renderer,
+            texture_store,
         })
     }
 
@@ -84,9 +95,17 @@ impl WindowRenderState {
 
         let frame_index = self.frame_sync.current_frame();
 
-        if let Some(r2d) = &mut self.renderer2d {
+        // Process pending async texture loads
+        if let Some(store) = &mut self.texture_store {
+            store.process_pending(gpu);
+            store.flush_descriptors(frame_index);
+        }
+
+        if let (Some(r2d), Some(store)) = (&mut self.renderer2d, &mut self.texture_store) {
             let mut ctx = RenderContext2D {
                 renderer: r2d,
+                texture_store: store,
+                gpu,
                 surface_size: (extent.width, extent.height),
             };
             on_render2d(&mut ctx);
@@ -96,13 +115,15 @@ impl WindowRenderState {
         let backbuffer = builder.import_backbuffer();
 
         // UI pass first (drawn underneath)
-        if let (Some(ui_r), Some(scene)) = (&mut self.ui_renderer, ui_scene) {
-            ui_r.sync_and_register(scene, &mut builder, backbuffer, frame_index);
+        if let (Some(ui_r), Some(scene), Some(store)) =
+            (&mut self.ui_renderer, ui_scene, &self.texture_store)
+        {
+            ui_r.sync_and_register(scene, store, &mut builder, backbuffer, frame_index);
         }
 
         // 2D overlay pass (drawn on top)
-        if let Some(r2d) = &mut self.renderer2d {
-            r2d.register_passes(&mut builder, backbuffer, frame_index);
+        if let (Some(r2d), Some(store)) = (&mut self.renderer2d, &self.texture_store) {
+            r2d.register_passes_with_textures(store, &mut builder, backbuffer, frame_index);
         }
 
         let (passes, resources, bb) = builder.build();
@@ -133,9 +154,6 @@ impl WindowRenderState {
             return Ok(());
         }
         self.swapchain.recreate(gpu, &self.surface, width, height)?;
-        if let Some(r2d) = &mut self.renderer2d {
-            r2d.on_resize(gpu, width, height)?;
-        }
         Ok(())
     }
 
@@ -148,6 +166,9 @@ impl WindowRenderState {
         }
         if let Some(ui_r) = &mut self.ui_renderer {
             ui_r.destroy(gpu);
+        }
+        if let Some(store) = &mut self.texture_store {
+            store.destroy();
         }
     }
 }

@@ -21,10 +21,14 @@ pub(crate) struct InstancePipeline {
 }
 
 impl InstancePipeline {
-    pub fn new(gpu: &GpuContext, color_format: vk::Format) -> Result<Self> {
+    pub fn new(
+        gpu: &GpuContext,
+        color_format: vk::Format,
+        texture_descriptor_set_layout: vk::DescriptorSetLayout,
+    ) -> Result<Self> {
         let device = gpu.ash_device();
 
-        let pipeline = Pipeline2D::new(device, color_format)?;
+        let pipeline = Pipeline2D::new(device, color_format, texture_descriptor_set_layout)?;
 
         let frames_in_flight = MAX_FRAMES_IN_FLIGHT;
         let mut instance_buffers = Vec::with_capacity(frames_in_flight);
@@ -49,7 +53,7 @@ impl InstancePipeline {
         let descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None)? };
 
         let layouts: Vec<_> = (0..frames_in_flight)
-            .map(|_| pipeline.descriptor_set_layout)
+            .map(|_| pipeline.ssbo_descriptor_set_layout)
             .collect();
         let alloc_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
@@ -86,7 +90,8 @@ impl InstancePipeline {
         extent: vk::Extent2D,
         pipeline: vk::Pipeline,
         pipeline_layout: vk::PipelineLayout,
-        descriptor_set: vk::DescriptorSet,
+        ssbo_descriptor_set: vk::DescriptorSet,
+        texture_descriptor_set: vk::DescriptorSet,
         instance_count: u32,
     ) {
         unsafe {
@@ -123,7 +128,7 @@ impl InstancePipeline {
                 vk::PipelineBindPoint::GRAPHICS,
                 pipeline_layout,
                 0,
-                &[descriptor_set],
+                &[ssbo_descriptor_set, texture_descriptor_set],
                 &[],
             );
 

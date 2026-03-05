@@ -1,10 +1,15 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 
 layout(location = 0) in vec2 v_local_pos;
 layout(location = 1) flat in vec2 v_size;
 layout(location = 2) flat in float v_corner_radius;
 layout(location = 3) flat in uint v_shape_type;
 layout(location = 4) flat in vec4 v_color;
+layout(location = 5) in vec2 v_uv;
+layout(location = 6) flat in int v_texture_index;
+
+layout(set = 1, binding = 0) uniform sampler2D textures[];
 
 layout(location = 0) out vec4 out_color;
 
@@ -44,5 +49,13 @@ void main() {
         discard;
     }
 
-    out_color = vec4(v_color.rgb, v_color.a * alpha);
+    vec4 fill_color;
+    if (v_texture_index >= 0) {
+        fill_color = texture(textures[nonuniformEXT(v_texture_index)], v_uv);
+        fill_color *= v_color; // color as tint
+    } else {
+        fill_color = v_color;
+    }
+
+    out_color = vec4(fill_color.rgb, fill_color.a * alpha);
 }

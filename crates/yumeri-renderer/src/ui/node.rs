@@ -4,6 +4,7 @@ use slotmap::new_key_type;
 use crate::renderer::renderer2d::shapes::{
     pack_instance, Color, ShapeType, FLOATS_PER_INSTANCE,
 };
+use crate::texture::{Texture, TextureId};
 
 new_key_type! { pub struct NodeId; }
 
@@ -25,6 +26,7 @@ pub(crate) struct Node {
     pub(crate) corner_radius: f32,
     pub(crate) shape_type: ShapeType,
     pub(crate) color: Color,
+    pub(crate) texture: Option<Texture>,
     pub(crate) visible: bool,
     pub(crate) z_index: i32,
 
@@ -44,6 +46,7 @@ impl Node {
             corner_radius: 0.0,
             shape_type,
             color: Color::rgba(1.0, 1.0, 1.0, 1.0),
+            texture: None,
             visible: true,
             z_index: 0,
             world_position: [0.0, 0.0],
@@ -56,13 +59,18 @@ impl Node {
         self.visible && self.shape_type != ShapeType::None
     }
 
-    pub(crate) fn to_instance_data(&self) -> [f32; FLOATS_PER_INSTANCE] {
+    pub(crate) fn to_instance_data(
+        &self,
+        resolve: impl Fn(TextureId) -> u32,
+    ) -> [f32; FLOATS_PER_INSTANCE] {
         pack_instance(
             self.world_position,
             self.size,
             self.corner_radius,
             self.shape_type,
             self.color,
+            self.texture,
+            resolve,
         )
     }
 }

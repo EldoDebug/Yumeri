@@ -5,6 +5,8 @@ use crate::error::Result;
 use crate::gpu::GpuContext;
 use crate::graph::{RenderGraphBuilder, ResourceId};
 use crate::renderer::instance_pipeline::{InstancePipeline, MAX_INSTANCES};
+use crate::texture::store::TextureStore;
+use crate::texture::TextureId;
 
 pub(crate) struct UiRenderer {
     ip: Option<InstancePipeline>,
@@ -19,8 +21,13 @@ impl UiRenderer {
         }
     }
 
-    pub(crate) fn initialize(&mut self, gpu: &GpuContext, color_format: vk::Format) -> Result<()> {
-        let ip = InstancePipeline::new(gpu, color_format)?;
+    pub(crate) fn initialize(
+        &mut self,
+        gpu: &GpuContext,
+        color_format: vk::Format,
+        texture_descriptor_set_layout: vk::DescriptorSetLayout,
+    ) -> Result<()> {
+        let ip = InstancePipeline::new(gpu, color_format, texture_descriptor_set_layout)?;
         let frames = ip.instance_buffers.len();
         self.ip = Some(ip);
         self.buffer_generations = vec![0; frames];
@@ -30,11 +37,13 @@ impl UiRenderer {
     pub(crate) fn sync_and_register(
         &mut self,
         scene: &mut Scene,
+        texture_store: &TextureStore,
         builder: &mut RenderGraphBuilder,
         backbuffer: ResourceId,
         frame_index: usize,
     ) {
-        let sync_result = scene.sync();
+        let resolve = |id: TextureId| texture_store.resolve(id);
+        let sync_result = scene.sync(resolve);
 
         let instance_count = scene.render_list().instance_count().min(MAX_INSTANCES as u32);
         if instance_count == 0 {
@@ -46,7 +55,8 @@ impl UiRenderer {
         let ip = self.ip.as_ref().unwrap();
         let pipeline = ip.pipeline.pipeline;
         let pipeline_layout = ip.pipeline.pipeline_layout;
-        let descriptor_set = ip.descriptor_sets[frame_index];
+        let ssbo_descriptor_set = ip.descriptor_sets[frame_index];
+        let texture_descriptor_set = texture_store.descriptor_set(frame_index);
 
         builder.add_pass("ui_render", move |pass| {
             pass.write(backbuffer);
@@ -57,7 +67,8 @@ impl UiRenderer {
                     ctx.render_area(),
                     pipeline,
                     pipeline_layout,
-                    descriptor_set,
+                    ssbo_descriptor_set,
+                    texture_descriptor_set,
                     instance_count,
                 );
             }
@@ -73,8 +84,6 @@ impl UiRenderer {
             return;
         };
 
-        // With double-buffering, each buffer is typically 2 generations behind,
-        // so incremental updates rarely apply. Use full rewrite when stale.
         let needs_full = match sync_result {
             SyncResult::Clean => buffer_gen < current_gen,
             SyncResult::Incremental(ranges) if buffer_gen + 1 == current_gen => {

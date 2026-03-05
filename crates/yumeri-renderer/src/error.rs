@@ -23,6 +23,9 @@ pub enum RendererError {
     #[error("shader error: {0}")]
     Shader(String),
 
+    #[error("texture error: {0}")]
+    Texture(String),
+
     #[error("window handle error: {0:?}")]
     WindowHandle(raw_window_handle::HandleError),
 }

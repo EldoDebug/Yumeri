@@ -91,6 +91,45 @@ impl GpuContext {
     pub fn allocator(&self) -> &Arc<Mutex<Option<Allocator>>> {
         &self.allocator
     }
+
+    pub fn submit_oneshot(
+        &self,
+        record: impl FnOnce(vk::CommandBuffer),
+    ) -> crate::error::Result<()> {
+        let device = self.ash_device();
+        unsafe {
+            let pool_info = vk::CommandPoolCreateInfo::default()
+                .flags(vk::CommandPoolCreateFlags::TRANSIENT)
+                .queue_family_index(self.queue_family_indices().graphics);
+            let pool = device.create_command_pool(&pool_info, None)?;
+
+            let alloc_info = vk::CommandBufferAllocateInfo::default()
+                .command_pool(pool)
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_buffer_count(1);
+            let cmd = device.allocate_command_buffers(&alloc_info)?[0];
+
+            let begin_info = vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+            device.begin_command_buffer(cmd, &begin_info)?;
+
+            record(cmd);
+
+            device.end_command_buffer(cmd)?;
+
+            let fence = device
+                .create_fence(&vk::FenceCreateInfo::default(), None)?;
+
+            let submit_info =
+                vk::SubmitInfo::default().command_buffers(std::slice::from_ref(&cmd));
+            device.queue_submit(self.graphics_queue(), &[submit_info], fence)?;
+            device.wait_for_fences(&[fence], true, u64::MAX)?;
+
+            device.destroy_fence(fence, None);
+            device.destroy_command_pool(pool, None);
+        }
+        Ok(())
+    }
 }
 
 impl Drop for GpuContext {

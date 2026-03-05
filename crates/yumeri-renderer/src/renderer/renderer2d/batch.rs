@@ -1,4 +1,5 @@
 use super::shapes::{Shape, FLOATS_PER_INSTANCE};
+use crate::texture::TextureId;
 
 pub(crate) struct DrawBatch {
     shapes: Vec<Shape>,
@@ -22,14 +23,14 @@ impl DrawBatch {
     }
 
     /// Write instance data directly to a mapped buffer slice without intermediate allocation.
-    pub fn write_to_buffer(&self, buffer: &mut [u8]) {
+    pub fn write_to_buffer(&self, buffer: &mut [u8], resolve: impl Fn(TextureId) -> u32) {
         let stride = FLOATS_PER_INSTANCE * size_of::<f32>();
         for (i, shape) in self.shapes.iter().enumerate() {
             let offset = i * stride;
             if offset + stride > buffer.len() {
                 break;
             }
-            let data = shape.to_instance_data();
+            let data = shape.to_instance_data(&resolve);
             let bytes = bytemuck::cast_slice::<f32, u8>(&data);
             buffer[offset..offset + stride].copy_from_slice(bytes);
         }

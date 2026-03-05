@@ -22,6 +22,7 @@ impl WindowDelegate for MyWindow {
             position: [cx - 200.0, cy],
             size: [80.0, 60.0],
             color: Color::rgb(0.2, 0.4, 0.8),
+            texture: None,
         });
 
         ctx.draw_rounded_rect(RoundedRect {
@@ -29,12 +30,14 @@ impl WindowDelegate for MyWindow {
             size: [100.0, 60.0],
             corner_radius: 16.0,
             color: Color::rgb(0.9, 0.3, 0.3),
+            texture: None,
         });
 
         ctx.draw_circle(Circle {
             position: [cx + 200.0, cy],
             radius: 50.0,
             color: Color::rgba(0.1, 0.8, 0.3, 0.8),
+            texture: None,
         });
     }
 

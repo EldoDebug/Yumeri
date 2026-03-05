@@ -7,9 +7,10 @@ use ash::vk;
 use crate::error::Result;
 use crate::gpu::GpuContext;
 use crate::graph::{RenderGraphBuilder, ResourceId};
+use crate::texture::store::TextureStore;
+use crate::texture::TextureId;
 
 use super::instance_pipeline::{InstancePipeline, MAX_INSTANCES};
-use super::{RenderPhase, Renderer};
 use batch::DrawBatch;
 pub use shapes::{Circle, Color, Rect, RoundedRect};
 pub(crate) use shapes::Shape;
@@ -38,20 +39,24 @@ impl Renderer2D {
     pub fn draw_circle(&mut self, circle: Circle) {
         self.batch.push(Shape::Circle(circle));
     }
-}
 
-impl Renderer for Renderer2D {
-    fn phase(&self) -> RenderPhase {
-        RenderPhase::Overlay2D
-    }
-
-    fn initialize(&mut self, gpu: &GpuContext, color_format: vk::Format) -> Result<()> {
-        self.ip = Some(InstancePipeline::new(gpu, color_format)?);
+    pub(crate) fn initialize_with_textures(
+        &mut self,
+        gpu: &GpuContext,
+        color_format: vk::Format,
+        texture_descriptor_set_layout: vk::DescriptorSetLayout,
+    ) -> Result<()> {
+        self.ip = Some(InstancePipeline::new(
+            gpu,
+            color_format,
+            texture_descriptor_set_layout,
+        )?);
         Ok(())
     }
 
-    fn register_passes(
+    pub(crate) fn register_passes_with_textures(
         &mut self,
+        texture_store: &TextureStore,
         builder: &mut RenderGraphBuilder,
         backbuffer: ResourceId,
         frame_index: usize,
@@ -61,17 +66,19 @@ impl Renderer for Renderer2D {
         }
 
         let ip = self.ip.as_mut().unwrap();
+        let resolve = |id: TextureId| texture_store.resolve(id);
 
         if let Some(buffer) = ip.instance_buffers.get_mut(frame_index)
             && let Some(mapped) = buffer.mapped_slice_mut()
         {
-            self.batch.write_to_buffer(mapped);
+            self.batch.write_to_buffer(mapped, resolve);
         }
 
         let instance_count = self.batch.instance_count().min(MAX_INSTANCES as u32);
         let pipeline = ip.pipeline.pipeline;
         let pipeline_layout = ip.pipeline.pipeline_layout;
-        let descriptor_set = ip.descriptor_sets[frame_index];
+        let ssbo_descriptor_set = ip.descriptor_sets[frame_index];
+        let texture_descriptor_set = texture_store.descriptor_set(frame_index);
 
         builder.add_pass("render_2d", move |pass| {
             pass.write(backbuffer);
@@ -82,7 +89,8 @@ impl Renderer for Renderer2D {
                     ctx.render_area(),
                     pipeline,
                     pipeline_layout,
-                    descriptor_set,
+                    ssbo_descriptor_set,
+                    texture_descriptor_set,
                     instance_count,
                 );
             }
@@ -91,11 +99,7 @@ impl Renderer for Renderer2D {
         self.batch.clear();
     }
 
-    fn on_resize(&mut self, _gpu: &GpuContext, _width: u32, _height: u32) -> Result<()> {
-        Ok(())
-    }
-
-    fn destroy(&mut self, gpu: &GpuContext) {
+    pub(crate) fn destroy(&mut self, gpu: &GpuContext) {
         if let Some(ip) = &mut self.ip {
             ip.destroy(gpu);
         }
