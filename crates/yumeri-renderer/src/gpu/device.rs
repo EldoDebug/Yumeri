@@ -1,0 +1,150 @@
+use ash::vk;
+
+use crate::error::{RendererError, Result};
+
+#[derive(Clone, Copy)]
+pub struct QueueFamilyIndices {
+    pub graphics: u32,
+}
+
+pub struct VulkanDevice {
+    device: ash::Device,
+    physical_device: vk::PhysicalDevice,
+    queue_family_indices: QueueFamilyIndices,
+    graphics_queue: vk::Queue,
+}
+
+impl VulkanDevice {
+    pub fn new(
+        instance: &ash::Instance,
+        surface_loader: &ash::khr::surface::Instance,
+        surface: vk::SurfaceKHR,
+    ) -> Result<Self> {
+        let (physical_device, queue_family_indices) =
+            pick_physical_device(instance, surface_loader, surface)?;
+
+        let queue_priorities = [1.0f32];
+        let queue_create_info = vk::DeviceQueueCreateInfo::default()
+            .queue_family_index(queue_family_indices.graphics)
+            .queue_priorities(&queue_priorities);
+        let queue_create_infos = [queue_create_info];
+
+        let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
+
+        let mut vulkan_13_features = vk::PhysicalDeviceVulkan13Features::default()
+            .dynamic_rendering(true)
+            .synchronization2(true);
+
+        let device_create_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_extension_names(&device_extensions)
+            .push_next(&mut vulkan_13_features);
+
+        let device =
+            unsafe { instance.create_device(physical_device, &device_create_info, None)? };
+
+        let graphics_queue =
+            unsafe { device.get_device_queue(queue_family_indices.graphics, 0) };
+
+        let props = unsafe { instance.get_physical_device_properties(physical_device) };
+        let name = unsafe { std::ffi::CStr::from_ptr(props.device_name.as_ptr()) };
+        log::info!("Selected GPU: {}", name.to_string_lossy());
+
+        Ok(Self {
+            device,
+            physical_device,
+            queue_family_indices,
+            graphics_queue,
+        })
+    }
+
+    pub fn raw(&self) -> &ash::Device {
+        &self.device
+    }
+
+    pub fn physical_device(&self) -> vk::PhysicalDevice {
+        self.physical_device
+    }
+
+    pub fn queue_family_indices(&self) -> QueueFamilyIndices {
+        self.queue_family_indices
+    }
+
+    pub fn graphics_queue(&self) -> vk::Queue {
+        self.graphics_queue
+    }
+}
+
+impl Drop for VulkanDevice {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.device.device_wait_idle();
+            self.device.destroy_device(None);
+        }
+    }
+}
+
+fn pick_physical_device(
+    instance: &ash::Instance,
+    surface_loader: &ash::khr::surface::Instance,
+    surface: vk::SurfaceKHR,
+) -> Result<(vk::PhysicalDevice, QueueFamilyIndices)> {
+    let devices = unsafe { instance.enumerate_physical_devices()? };
+    if devices.is_empty() {
+        return Err(RendererError::NoSuitableGpu);
+    }
+
+    // Prefer discrete GPU, fallback to integrated
+    let mut best: Option<(vk::PhysicalDevice, QueueFamilyIndices, bool)> = None;
+
+    for &pd in &devices {
+        let Some(indices) = find_queue_families(instance, surface_loader, surface, pd) else {
+            continue;
+        };
+
+        let props = unsafe { instance.get_physical_device_properties(pd) };
+        let is_discrete = props.device_type == vk::PhysicalDeviceType::DISCRETE_GPU;
+
+        match &best {
+            Some((_, _, true)) if !is_discrete => {}
+            _ => best = Some((pd, indices, is_discrete)),
+        }
+
+        if is_discrete {
+            break;
+        }
+    }
+
+    let (pd, indices, _) = best.ok_or(RendererError::NoSuitableGpu)?;
+    Ok((pd, indices))
+}
+
+fn find_queue_families(
+    instance: &ash::Instance,
+    surface_loader: &ash::khr::surface::Instance,
+    surface: vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+) -> Option<QueueFamilyIndices> {
+    let families =
+        unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+
+    for (i, family) in families.iter().enumerate() {
+        let i = i as u32;
+
+        if !family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+            continue;
+        }
+
+        let present_support = unsafe {
+            surface_loader
+                .get_physical_device_surface_support(physical_device, i, surface)
+                .unwrap_or(false)
+        };
+
+        if present_support {
+            return Some(QueueFamilyIndices { graphics: i });
+        }
+    }
+
+    None
+}

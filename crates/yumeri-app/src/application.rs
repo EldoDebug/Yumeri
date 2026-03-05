@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
+use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::WindowId;
+use yumeri_renderer::GpuContext;
 
 use crate::delegate::{AppContext, AppDelegate, CloseResponse};
 use crate::error::AppError;
@@ -47,6 +49,7 @@ impl ApplicationBuilder {
             windows: HashMap::new(),
             pending_builders: self.initial_windows,
             requests: Vec::new(),
+            gpu_context: None,
         };
         event_loop.run_app(&mut runner)?;
         Ok(())
@@ -66,19 +69,64 @@ struct Runner {
     windows: HashMap<WindowId, WindowEntry>,
     pending_builders: Vec<WindowBuilder>,
     requests: Vec<AppRequest>,
+    gpu_context: Option<GpuContext>,
 }
 
 impl Runner {
+    fn ensure_gpu_context(&mut self, winit_window: &winit::window::Window) {
+        if self.gpu_context.is_some() {
+            return;
+        }
+        let display_handle = winit_window.display_handle().unwrap().as_raw();
+        let window_handle = winit_window.window_handle().unwrap().as_raw();
+        match GpuContext::new(display_handle, window_handle) {
+            Ok(gpu) => self.gpu_context = Some(gpu),
+            Err(e) => eprintln!("Failed to create GPU context: {e}"),
+        }
+    }
+
     fn create_window(
         &mut self,
         event_loop: &ActiveEventLoop,
         builder: WindowBuilder,
     ) -> Result<WindowId, AppError> {
+        let enable_2d = builder.enable_renderer_2d;
+        let needs_rendering = enable_2d;
+
         let winit_window = event_loop.create_window(builder.attrs)?;
         let id = winit_window.id();
+
+        let render_state = if needs_rendering {
+            self.ensure_gpu_context(&winit_window);
+            if let Some(gpu) = &self.gpu_context {
+                let display_handle = winit_window.display_handle().unwrap().as_raw();
+                let window_handle = winit_window.window_handle().unwrap().as_raw();
+                let size = winit_window.inner_size();
+                match yumeri_renderer::WindowRenderState::new(
+                    gpu,
+                    display_handle,
+                    window_handle,
+                    size.width,
+                    size.height,
+                    enable_2d,
+                ) {
+                    Ok(state) => Some(state),
+                    Err(e) => {
+                        eprintln!("Failed to create render state: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let entry = WindowEntry {
             window: Window::new(winit_window),
             delegate: builder.delegate,
+            render_state,
         };
         self.windows.insert(id, entry);
         Ok(id)
@@ -86,7 +134,7 @@ impl Runner {
 
     fn process_requests(&mut self, event_loop: &ActiveEventLoop) {
         while !self.requests.is_empty() {
-            let requests: Vec<AppRequest> = self.requests.drain(..).collect();
+            let requests = std::mem::take(&mut self.requests);
             for request in requests {
                 match request {
                     AppRequest::CreateWindow(builder) => {
@@ -104,14 +152,19 @@ impl Runner {
                         }
                     }
                     AppRequest::CloseWindow(id) => {
-                        if self.windows.remove(&id).is_some()
-                            && let Some(delegate) = &mut self.delegate
-                        {
-                            let mut ctx = AppContext {
-                                windows: &self.windows,
-                                requests: &mut self.requests,
-                            };
-                            delegate.on_window_destroyed(&mut ctx, id);
+                        if let Some(mut entry) = self.windows.remove(&id) {
+                            if let (Some(gpu), Some(rs)) =
+                                (&self.gpu_context, &mut entry.render_state)
+                            {
+                                rs.destroy(gpu);
+                            }
+                            if let Some(delegate) = &mut self.delegate {
+                                let mut ctx = AppContext {
+                                    windows: &self.windows,
+                                    requests: &mut self.requests,
+                                };
+                                delegate.on_window_destroyed(&mut ctx, id);
+                            }
                         }
                     }
                     AppRequest::Exit => {
@@ -160,14 +213,13 @@ impl ApplicationHandler for Runner {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        // Take the delegate out to avoid borrow conflicts
         let Some(entry) = self.windows.get_mut(&window_id) else {
             return;
         };
         let mut delegate = entry.delegate.take();
+        let mut render_state = entry.render_state.take();
 
         if let Some(d) = &mut delegate {
-            // Handle CloseRequested separately to avoid borrow issues on window removal
             if matches!(event, WindowEvent::CloseRequested) {
                 let response = {
                     let entry = self.windows.get(&window_id).unwrap();
@@ -175,6 +227,9 @@ impl ApplicationHandler for Runner {
                     d.on_close_requested(&mut ctx)
                 };
                 if response == CloseResponse::Close {
+                    if let (Some(gpu), Some(rs)) = (&self.gpu_context, &mut render_state) {
+                        rs.destroy(gpu);
+                    }
                     self.windows.remove(&window_id);
 
                     if let Some(app_delegate) = &mut self.delegate {
@@ -189,22 +244,39 @@ impl ApplicationHandler for Runner {
                     return;
                 }
             } else {
+                // GPU render operations for specific events
+                match &event {
+                    WindowEvent::RedrawRequested => {
+                        if let (Some(gpu), Some(rs)) = (&self.gpu_context, &mut render_state) {
+                            let result = rs.render_frame(gpu, |ctx| {
+                                d.on_render2d(ctx);
+                            });
+                            if let Err(e) = result {
+                                eprintln!("Render error: {e}");
+                            }
+                        }
+                    }
+                    WindowEvent::Resized(size) => {
+                        if let (Some(gpu), Some(rs)) = (&self.gpu_context, &mut render_state) {
+                            if let Err(e) = rs.on_resize(gpu, size.width, size.height) {
+                                eprintln!("Resize error: {e}");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                // Delegate dispatch with shared context
                 let entry = self.windows.get(&window_id).unwrap();
                 let mut ctx = WindowContext::new(&entry.window, &mut self.requests);
-
                 match event {
-                    WindowEvent::Resized(size) => {
-                        d.on_resized(&mut ctx, size);
-                    }
-                    WindowEvent::RedrawRequested => {
-                        d.on_redraw_requested(&mut ctx);
-                    }
+                    WindowEvent::RedrawRequested => d.on_redraw_requested(&mut ctx),
+                    WindowEvent::Resized(size) => d.on_resized(&mut ctx, size),
                     WindowEvent::KeyboardInput {
-                        event: ref key_event,
-                        ..
+                        event: key_event, ..
                     } => {
                         let is_pressed = key_event.state.is_pressed();
-                        d.on_key_input(&mut ctx, key_event, is_pressed);
+                        d.on_key_input(&mut ctx, &key_event, is_pressed);
                     }
                     WindowEvent::MouseInput { state, button, .. } => {
                         d.on_mouse_input(&mut ctx, state, button);
@@ -223,9 +295,9 @@ impl ApplicationHandler for Runner {
             }
         }
 
-        // Put the delegate back if the window still exists
         if let Some(entry) = self.windows.get_mut(&window_id) {
             entry.delegate = delegate;
+            entry.render_state = render_state;
         }
 
         self.process_requests(event_loop);
@@ -236,6 +308,13 @@ impl ApplicationHandler for Runner {
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // Destroy render states before GPU context is dropped
+        for (_, entry) in &mut self.windows {
+            if let (Some(gpu), Some(rs)) = (&self.gpu_context, &mut entry.render_state) {
+                rs.destroy(gpu);
+            }
+        }
+
         if let Some(delegate) = &mut self.delegate {
             let mut ctx = AppContext {
                 windows: &self.windows,

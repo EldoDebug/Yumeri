@@ -12,3 +12,5 @@ pub use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSiz
 pub use winit::event::{ElementState, KeyEvent, MouseButton};
 pub use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 pub use winit::window::WindowId;
+
+pub use yumeri_renderer::{self, Circle, Color, Rect, RenderContext2D, RoundedRect};

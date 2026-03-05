@@ -43,12 +43,14 @@ impl Window {
 pub(crate) struct WindowEntry {
     pub(crate) window: Window,
     pub(crate) delegate: Option<Box<dyn WindowDelegate>>,
+    pub(crate) render_state: Option<yumeri_renderer::WindowRenderState>,
 }
 
 /// Builder for creating windows with a fluent API.
 pub struct WindowBuilder {
     pub(crate) attrs: winit::window::WindowAttributes,
     pub(crate) delegate: Option<Box<dyn WindowDelegate>>,
+    pub(crate) enable_renderer_2d: bool,
 }
 
 impl WindowBuilder {
@@ -56,6 +58,7 @@ impl WindowBuilder {
         Self {
             attrs: winit::window::Window::default_attributes(),
             delegate: None,
+            enable_renderer_2d: false,
         }
     }
 
@@ -112,6 +115,11 @@ impl WindowBuilder {
 
     pub fn with_delegate(mut self, delegate: impl WindowDelegate + 'static) -> Self {
         self.delegate = Some(Box::new(delegate));
+        self
+    }
+
+    pub fn with_renderer_2d(mut self) -> Self {
+        self.enable_renderer_2d = true;
         self
     }
 }
