@@ -141,11 +141,20 @@ impl Runner {
         // Call on_ui_setup for UI-enabled windows
         let surface_size = entry.window.surface_size();
         if let (Some(d), Some(scene)) = (&mut entry.delegate, &mut entry.ui_scene) {
-            let mut ui_ctx = yumeri_renderer::ui::UiContext::new(
-                scene,
-                (surface_size.width, surface_size.height),
-            );
-            d.on_ui_setup(&mut ui_ctx);
+            if let (Some(rs), Some(gpu)) = (&mut entry.render_state, &self.gpu_context) {
+                let mut ui_ctx = rs.setup_ui_context(
+                    scene,
+                    gpu,
+                    (surface_size.width, surface_size.height),
+                );
+                d.on_ui_setup(&mut ui_ctx);
+            } else {
+                let mut ui_ctx = yumeri_renderer::ui::UiContext::new(
+                    scene,
+                    (surface_size.width, surface_size.height),
+                );
+                d.on_ui_setup(&mut ui_ctx);
+            }
         }
 
         if entry.ui_scene.as_ref().is_some_and(|s| s.is_dirty()) {

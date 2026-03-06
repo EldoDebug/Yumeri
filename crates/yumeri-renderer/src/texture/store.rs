@@ -158,19 +158,45 @@ impl TextureStore {
         img: &yumeri_image::Image,
     ) -> Result<TextureId> {
         let rgba = ensure_rgba8(img)?;
-        let image = upload_image_to_gpu(gpu, rgba.width(), rgba.height(), rgba.data())?;
+        self.create_from_raw_rgba(gpu, rgba.width(), rgba.height(), rgba.data())
+    }
 
+    pub fn create_from_raw_rgba(
+        &mut self,
+        gpu: &GpuContext,
+        width: u32,
+        height: u32,
+        data: &[u8],
+    ) -> Result<TextureId> {
+        let image = upload_image_to_gpu(gpu, width, height, data)?;
         let desc_idx = self.allocate_descriptor_index()?;
-
         let gpu_tex = GpuTexture {
             image,
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
         };
-
         let id = self.textures.insert(gpu_tex);
         self.dirty = true;
         Ok(id)
+    }
+
+    pub fn update_raw_rgba(
+        &mut self,
+        gpu: &GpuContext,
+        id: TextureId,
+        width: u32,
+        height: u32,
+        data: &[u8],
+    ) -> Result<()> {
+        if !self.textures.contains_key(id) {
+            return Err(RendererError::Texture("texture id not found for update".into()));
+        }
+        let new_image = upload_image_to_gpu(gpu, width, height, data)?;
+        let gpu_tex = self.textures.get_mut(id).unwrap();
+        let old_image = std::mem::replace(&mut gpu_tex.image, new_image);
+        self.retired_images.push(old_image);
+        self.dirty = true;
+        Ok(())
     }
 
     pub fn load(&mut self, gpu: &GpuContext, path: impl Into<PathBuf>) -> TextureId {

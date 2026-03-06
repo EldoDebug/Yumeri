@@ -9,6 +9,7 @@ use crate::gpu::swapchain::Swapchain;
 use crate::gpu::GpuContext;
 use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder};
 use crate::renderer::renderer2d::Renderer2D;
+use crate::texture::glyph_cache::GlyphCache;
 use crate::texture::store::TextureStore;
 use crate::ui::renderer::UiRenderer;
 use crate::ui::Scene;
@@ -20,6 +21,7 @@ pub struct WindowRenderState {
     renderer2d: Option<Renderer2D>,
     ui_renderer: Option<UiRenderer>,
     texture_store: Option<TextureStore>,
+    glyph_cache: Option<GlyphCache>,
 }
 
 impl WindowRenderState {
@@ -39,6 +41,12 @@ impl WindowRenderState {
         let needs_textures = enable_2d || enable_ui;
         let texture_store = if needs_textures {
             Some(TextureStore::new(gpu)?)
+        } else {
+            None
+        };
+
+        let glyph_cache = if needs_textures {
+            Some(GlyphCache::new())
         } else {
             None
         };
@@ -68,6 +76,7 @@ impl WindowRenderState {
             renderer2d,
             ui_renderer,
             texture_store,
+            glyph_cache,
         })
     }
 
@@ -98,17 +107,32 @@ impl WindowRenderState {
         // Process pending async texture loads
         if let Some(store) = &mut self.texture_store {
             store.process_pending(gpu);
-            store.flush_descriptors(frame_index);
         }
 
-        if let (Some(r2d), Some(store)) = (&mut self.renderer2d, &mut self.texture_store) {
+        if let (Some(r2d), Some(store), Some(gc)) = (
+            &mut self.renderer2d,
+            &mut self.texture_store,
+            &mut self.glyph_cache,
+        ) {
             let mut ctx = RenderContext2D {
                 renderer: r2d,
                 texture_store: store,
+                glyph_cache: gc,
                 gpu,
                 surface_size: (extent.width, extent.height),
             };
             on_render2d(&mut ctx);
+        }
+
+        // Flush glyph atlas after draw_text calls, before descriptor flush
+        if let (Some(gc), Some(store)) = (&mut self.glyph_cache, &mut self.texture_store) {
+            if let Err(e) = gc.flush(gpu, store) {
+                log::error!("Failed to flush glyph cache: {e}");
+            }
+        }
+
+        if let Some(store) = &mut self.texture_store {
+            store.flush_descriptors(frame_index);
         }
 
         let mut builder = RenderGraphBuilder::new();
@@ -149,6 +173,20 @@ impl WindowRenderState {
         Ok(())
     }
 
+    pub fn setup_ui_context<'a>(
+        &'a mut self,
+        scene: &'a mut Scene,
+        gpu: &'a GpuContext,
+        surface_size: (u32, u32),
+    ) -> crate::ui::UiContext<'a> {
+        match (&mut self.texture_store, &mut self.glyph_cache) {
+            (Some(store), Some(gc)) => {
+                crate::ui::UiContext::with_textures(scene, store, gc, gpu, surface_size)
+            }
+            _ => crate::ui::UiContext::new(scene, surface_size),
+        }
+    }
+
     pub fn on_resize(&mut self, gpu: &GpuContext, width: u32, height: u32) -> Result<()> {
         if width == 0 || height == 0 {
             return Ok(());
@@ -166,6 +204,10 @@ impl WindowRenderState {
         }
         if let Some(ui_r) = &mut self.ui_renderer {
             ui_r.destroy(gpu);
+        }
+        // Clear glyph cache before destroying texture store
+        if let Some(gc) = &mut self.glyph_cache {
+            gc.clear();
         }
         if let Some(store) = &mut self.texture_store {
             store.destroy();

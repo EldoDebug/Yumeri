@@ -3067,6 +3067,7 @@ dependencies = [
  "thiserror 2.0.18",
  "winit",
  "yumeri-animation",
+ "yumeri-font",
  "yumeri-renderer",
 ]
 
@@ -3110,6 +3111,7 @@ dependencies = [
  "shaderc",
  "slotmap",
  "thiserror 2.0.18",
+ "yumeri-font",
  "yumeri-image",
 ]
 

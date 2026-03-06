@@ -1,8 +1,11 @@
 use slotmap::SlotMap;
+use yumeri_font::Font;
 
 use super::node::{DirtyFlags, Node, NodeId};
 use super::render_list::RenderList;
 use crate::renderer::renderer2d::shapes::{Color, ShapeType, FLOATS_PER_INSTANCE};
+use crate::text::{shape_and_cache_glyphs, TextStyle};
+use crate::texture::glyph_cache::GlyphCache;
 use crate::texture::{Texture, TextureId};
 
 pub(crate) enum SyncResult {
@@ -149,6 +152,56 @@ impl Scene {
         {
             node.z_index = z_index;
             self.tree_dirty = true;
+        }
+    }
+
+    pub(crate) fn set_text(
+        &mut self,
+        id: NodeId,
+        font: &mut Font,
+        text: &str,
+        style: &TextStyle,
+        glyph_cache: &mut GlyphCache,
+    ) {
+        self.clear_glyph_children(id);
+
+        let (layout_glyphs, atlas_id) = shape_and_cache_glyphs(font, text, style, glyph_cache);
+        let mut glyph_child_ids = Vec::with_capacity(layout_glyphs.len());
+
+        for lg in layout_glyphs {
+            let Some(child_id) = self.add_child(id, ShapeType::Rect) else {
+                continue;
+            };
+
+            let texture = atlas_id.map(|id| crate::texture::Texture { id, uv_rect: lg.cached.uv });
+            let rect = lg.to_rect([0.0, 0.0], style.color, texture);
+
+            if let Some(child) = self.nodes.get_mut(child_id) {
+                child.position = rect.position;
+                child.size = rect.size;
+                child.color = rect.color;
+                child.texture = rect.texture;
+            }
+
+            glyph_child_ids.push(child_id);
+        }
+
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.text_glyph_children = glyph_child_ids;
+        }
+
+        self.tree_dirty = true;
+    }
+
+    fn clear_glyph_children(&mut self, id: NodeId) {
+        let children = self
+            .nodes
+            .get_mut(id)
+            .map(|n| std::mem::take(&mut n.text_glyph_children))
+            .unwrap_or_default();
+
+        for child_id in children {
+            self.remove(child_id);
         }
     }
 

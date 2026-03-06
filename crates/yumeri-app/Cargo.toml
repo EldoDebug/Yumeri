@@ -7,4 +7,5 @@ edition = "2024"
 thiserror = "2"
 winit = "0.30.13"
 yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }
+yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-renderer = { version = "0.1.0", path = "../yumeri-renderer" }

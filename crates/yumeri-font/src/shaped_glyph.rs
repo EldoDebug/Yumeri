@@ -14,6 +14,12 @@ pub struct ShapedGlyph {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct GlyphCacheKey(pub(crate) CacheKey);
 
+impl ShapedGlyph {
+    pub fn cache_key(&self) -> GlyphCacheKey {
+        self.cache_key
+    }
+}
+
 pub struct RasterizedGlyph {
     data: Vec<u8>,
     width: u32,

@@ -34,6 +34,8 @@ pub(crate) struct Node {
     pub(crate) render_index: Option<u32>,
 
     pub(crate) dirty: DirtyFlags,
+
+    pub(crate) text_glyph_children: Vec<NodeId>,
 }
 
 impl Node {
@@ -52,6 +54,7 @@ impl Node {
             world_position: [0.0, 0.0],
             render_index: None,
             dirty: DirtyFlags::all(),
+            text_glyph_children: Vec::new(),
         }
     }
 

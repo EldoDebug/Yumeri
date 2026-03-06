@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FontFamily {
     Name(String),
@@ -15,7 +15,7 @@ impl Default for FontFamily {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FontWeight(pub u16);
 
 impl FontWeight {
@@ -36,7 +36,7 @@ impl Default for FontWeight {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FontStyle {
     #[default]
@@ -45,7 +45,7 @@ pub enum FontStyle {
     Oblique,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FontStretch {
     UltraCondensed,
@@ -60,7 +60,7 @@ pub enum FontStretch {
     UltraExpanded,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontAttrs {
     pub(crate) family: FontFamily,
     pub(crate) weight: FontWeight,
@@ -127,7 +127,7 @@ impl TextMetrics {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum WrapMode {
     #[default]
@@ -137,7 +137,7 @@ pub enum WrapMode {
     None,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Alignment {
     #[default]
