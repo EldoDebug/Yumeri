@@ -13,14 +13,14 @@ const ATLAS_BYTES: usize = (ATLAS_SIZE * ATLAS_SIZE * 4) as usize;
 const PADDING: u32 = 1;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CachedGlyph {
+pub struct CachedGlyph {
     pub uv: UvRect,
     pub size: [f32; 2],
     pub offset: [f32; 2],
     pub is_color: bool,
 }
 
-pub(crate) struct GlyphCache {
+pub struct GlyphCache {
     pub(crate) layout_cache: LayoutCache,
     atlas_data: Vec<u8>,
     cache: HashMap<GlyphCacheKey, CachedGlyph>,

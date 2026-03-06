@@ -1,4 +1,4 @@
-pub(crate) mod glyph_cache;
+pub mod glyph_cache;
 pub(crate) mod gpu_texture;
 pub(crate) mod store;
 

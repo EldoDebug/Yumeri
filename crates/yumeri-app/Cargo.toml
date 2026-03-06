@@ -3,12 +3,17 @@ name = "yumeri-app"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["ui"]
+ui = ["dep:yumeri-ui"]
+
 [dependencies]
 thiserror = "2"
 winit = "0.30.13"
 yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-renderer = { version = "0.1.0", path = "../yumeri-renderer" }
+yumeri-ui = { version = "0.1.0", path = "../yumeri-ui", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11.9"

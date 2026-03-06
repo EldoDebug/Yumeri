@@ -155,7 +155,7 @@ impl Scene {
         }
     }
 
-    pub(crate) fn set_text(
+    pub fn set_text(
         &mut self,
         id: NodeId,
         font: &mut Font,
@@ -203,6 +203,10 @@ impl Scene {
         for child_id in children {
             self.remove(child_id);
         }
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
     }
 
     pub fn is_dirty(&self) -> bool {

@@ -17,3 +17,6 @@ pub use yumeri_renderer::{self, Circle, Color, Rect, RenderContext2D, RoundedRec
 pub use yumeri_renderer::{Texture, TextureId, UvRect};
 pub use yumeri_renderer::{Alignment, Font, FontAttrs, FontFamily, FontStyle, FontWeight, TextMetrics, TextStyle, WrapMode};
 pub use yumeri_renderer::ui::{NodeId, Scene as UiScene, UiContext};
+
+#[cfg(feature = "ui")]
+pub use yumeri_ui;
