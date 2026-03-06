@@ -61,8 +61,9 @@ impl LayoutGlyph {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct LayoutCacheKey(u64);
 
-fn compute_layout_key(text: &str, style: &TextStyle) -> LayoutCacheKey {
+fn compute_layout_key(font: &Font, text: &str, style: &TextStyle) -> LayoutCacheKey {
     let mut hasher = std::hash::DefaultHasher::new();
+    font.id().hash(&mut hasher);
     text.hash(&mut hasher);
     style.font_size.to_bits().hash(&mut hasher);
     style.line_height.to_bits().hash(&mut hasher);
@@ -93,7 +94,7 @@ pub(crate) fn shape_and_cache_glyphs<'a>(
     style: &TextStyle,
     glyph_cache: &'a mut GlyphCache,
 ) -> (&'a [LayoutGlyph], Option<TextureId>) {
-    let key = compute_layout_key(text, style);
+    let key = compute_layout_key(font, text, style);
 
     if glyph_cache.layout_cache.entries.contains_key(&key) {
         let atlas_id = glyph_cache.atlas_texture_id();

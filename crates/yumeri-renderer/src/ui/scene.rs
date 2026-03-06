@@ -310,6 +310,11 @@ impl Scene {
             self.recompute_world_positions();
             self.render_list.rebuild(&self.nodes, &self.roots, &resolve);
 
+            // Clear all render indices so invisible/removed nodes don't retain stale values
+            for (_, node) in &mut self.nodes {
+                node.render_index = None;
+            }
+
             for (i, &node_id) in self.render_list.index_to_node().iter().enumerate() {
                 if let Some(node) = self.nodes.get_mut(node_id) {
                     node.render_index = Some(i as u32);
@@ -331,12 +336,20 @@ impl Scene {
         // Only TRANSFORM and/or VISUAL changes -- use tracked dirty_nodes
         let dirty_nodes = std::mem::take(&mut self.dirty_nodes);
 
-        // Recompute world positions for TRANSFORM-dirty nodes
+        // Recompute world positions only for subtree roots (parent not TRANSFORM-dirty).
+        // Safety: propagate_transform_dirty adds ALL descendants to dirty_nodes,
+        // so a dirty parent is guaranteed to be processed as a subtree root.
         for &id in &dirty_nodes {
             if let Some(node) = self.nodes.get(id)
                 && node.dirty.contains(DirtyFlags::TRANSFORM)
             {
-                self.recompute_world_position_subtree(id);
+                let parent_is_dirty = node
+                    .parent
+                    .and_then(|pid| self.nodes.get(pid))
+                    .is_some_and(|p| p.dirty.contains(DirtyFlags::TRANSFORM));
+                if !parent_is_dirty {
+                    self.recompute_world_position_subtree(id);
+                }
             }
         }
 
