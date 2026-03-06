@@ -1,0 +1,4 @@
+[env]
+FFMPEG_INCLUDE_DIR = "C:/Users/eldod/Documents/Enviroment/ffmpeg/include"
+FFMPEG_LIBS_DIR = "C:/Users/eldod/Documents/Enviroment/ffmpeg/lib"
+FFMPEG_LINK_MODE = "dynamic"

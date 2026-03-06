@@ -9,3 +9,7 @@ winit = "0.30.13"
 yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-renderer = { version = "0.1.0", path = "../yumeri-renderer" }
+
+[dev-dependencies]
+env_logger = "0.11.9"
+yumeri-video = { path = "../yumeri-video" }

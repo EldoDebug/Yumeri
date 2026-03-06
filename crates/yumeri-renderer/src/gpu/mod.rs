@@ -3,6 +3,7 @@ mod device;
 pub(crate) mod surface;
 pub(crate) mod swapchain;
 
+use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 
 use ash::vk;
@@ -90,6 +91,24 @@ impl GpuContext {
 
     pub fn allocator(&self) -> &Arc<Mutex<Option<Allocator>>> {
         &self.allocator
+    }
+
+    /// Build a `VulkanDeviceInfo` for sharing this device with FFmpeg's Vulkan hwaccel.
+    pub fn vulkan_device_info(&self) -> yumeri_video::VulkanDeviceInfo {
+        let mut extensions: Vec<CString> = vec![CString::from(ash::khr::swapchain::NAME)];
+        for ext in self.device.enabled_video_extensions() {
+            extensions.push(CString::from(*ext));
+        }
+
+        yumeri_video::VulkanDeviceInfo {
+            get_proc_addr: self.instance.entry().static_fn().get_instance_proc_addr,
+            instance: self.instance.raw().handle(),
+            physical_device: self.device.physical_device(),
+            device: self.device.raw().handle(),
+            graphics_queue_family: self.device.queue_family_indices().graphics,
+            video_decode_queue_family: self.device.queue_family_indices().video_decode,
+            enabled_device_extensions: extensions,
+        }
     }
 
     pub fn submit_oneshot(

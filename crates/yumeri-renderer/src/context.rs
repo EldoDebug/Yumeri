@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use yumeri_font::Font;
+use yumeri_video::VideoHandle;
 
 use crate::error::Result;
 use crate::gpu::GpuContext;
@@ -9,6 +10,7 @@ use crate::text::{shape_and_cache_glyphs, TextStyle};
 use crate::texture::glyph_cache::GlyphCache;
 use crate::texture::store::TextureStore;
 use crate::texture::TextureId;
+use crate::video::VideoTexture;
 
 pub struct RenderContext2D<'a> {
     pub(crate) renderer: &'a mut Renderer2D,
@@ -16,6 +18,8 @@ pub struct RenderContext2D<'a> {
     pub(crate) glyph_cache: &'a mut GlyphCache,
     pub(crate) gpu: &'a GpuContext,
     pub(crate) surface_size: (u32, u32),
+    pub(crate) video_textures: &'a mut Vec<VideoTexture>,
+    pub(crate) frame_index: usize,
 }
 
 impl<'a> RenderContext2D<'a> {
@@ -59,6 +63,28 @@ impl<'a> RenderContext2D<'a> {
         for lg in layout_glyphs {
             let texture = atlas_id.map(|id| crate::texture::Texture { id, uv_rect: lg.cached.uv });
             self.renderer.draw_rect(lg.to_rect(position, style.color, texture));
+        }
+    }
+
+    /// Get `VulkanDeviceInfo` for Vulkan hardware-accelerated video decoding.
+    pub fn vulkan_device_info(&self) -> yumeri_video::VulkanDeviceInfo {
+        self.gpu.vulkan_device_info()
+    }
+
+    /// Create a video texture that automatically updates from a VideoHandle.
+    pub fn create_video_texture(&mut self, handle: VideoHandle) -> Result<TextureId> {
+        let vt = VideoTexture::new(self.gpu, self.texture_store, handle)?;
+        let id = vt.texture_id();
+        self.video_textures.push(vt);
+        Ok(id)
+    }
+
+    /// Drain decoded video frames and stage them for GPU upload.
+    /// Call this once per frame before drawing. The actual GPU copy is
+    /// recorded automatically on the render command buffer.
+    pub fn update_video_textures(&mut self) {
+        for vt in self.video_textures.iter_mut() {
+            vt.update(self.frame_index);
         }
     }
 }

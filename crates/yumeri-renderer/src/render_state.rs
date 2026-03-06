@@ -13,6 +13,7 @@ use crate::texture::glyph_cache::GlyphCache;
 use crate::texture::store::TextureStore;
 use crate::ui::renderer::UiRenderer;
 use crate::ui::Scene;
+use crate::video::VideoTexture;
 
 pub struct WindowRenderState {
     surface: Surface,
@@ -22,6 +23,7 @@ pub struct WindowRenderState {
     ui_renderer: Option<UiRenderer>,
     texture_store: Option<TextureStore>,
     glyph_cache: Option<GlyphCache>,
+    video_textures: Vec<VideoTexture>,
 }
 
 impl WindowRenderState {
@@ -77,6 +79,7 @@ impl WindowRenderState {
             ui_renderer,
             texture_store,
             glyph_cache,
+            video_textures: Vec::new(),
         })
     }
 
@@ -120,8 +123,17 @@ impl WindowRenderState {
                 glyph_cache: gc,
                 gpu,
                 surface_size: (extent.width, extent.height),
+                video_textures: &mut self.video_textures,
+                frame_index,
             };
             on_render2d(&mut ctx);
+        }
+
+        // Record streaming video uploads on the frame command buffer
+        if let Some(store) = &mut self.texture_store {
+            for vt in &mut self.video_textures {
+                vt.record_upload(frame.command_buffer, gpu, store, frame_index);
+            }
         }
 
         // Flush glyph atlas after draw_text calls, before descriptor flush
@@ -204,6 +216,12 @@ impl WindowRenderState {
         }
         if let Some(ui_r) = &mut self.ui_renderer {
             ui_r.destroy(gpu);
+        }
+        if let Some(store) = &mut self.texture_store {
+            for vt in &mut self.video_textures {
+                vt.destroy(store);
+            }
+            self.video_textures.clear();
         }
         // Clear glyph cache before destroying texture store
         if let Some(gc) = &mut self.glyph_cache {

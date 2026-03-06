@@ -7,6 +7,7 @@ pub(crate) mod resource;
 pub mod texture;
 pub mod text;
 pub mod ui;
+pub mod video;
 
 mod context;
 mod render_state;
@@ -20,6 +21,7 @@ pub use renderer::renderer2d::shapes::ShapeType;
 pub use text::TextStyle;
 pub use texture::{Texture, TextureId, UvRect};
 
+pub use video::VideoTexture;
 pub use yumeri_font::{
     Alignment, Font, FontAttrs, FontFamily, FontStyle, FontWeight, TextBuffer, TextMetrics,
     WrapMode,

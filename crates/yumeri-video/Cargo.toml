@@ -1,0 +1,11 @@
+[package]
+name = "yumeri-video"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rsmpeg = "0.18"
+ash = { version = "0.38.0", default-features = false, features = ["std"] }
+log = "0.4"
+thiserror = "2"
+yumeri-audio = { version = "0.1.0", path = "../yumeri-audio" }

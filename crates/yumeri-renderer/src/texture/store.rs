@@ -144,6 +144,7 @@ impl TextureStore {
             image,
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
+            override_view: None,
         };
 
         let id = self.textures.insert(gpu_tex);
@@ -174,6 +175,7 @@ impl TextureStore {
             image,
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
+            override_view: None,
         };
         let id = self.textures.insert(gpu_tex);
         self.dirty = true;
@@ -218,6 +220,7 @@ impl TextureStore {
             image: placeholder_image,
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
+            override_view: None,
         };
 
         let id = self.textures.insert(gpu_tex);
@@ -278,7 +281,7 @@ impl TextureStore {
                     gpu_tex.descriptor_index,
                     vk::DescriptorImageInfo::default()
                         .sampler(gpu_tex.sampler)
-                        .image_view(gpu_tex.image.view())
+                        .image_view(gpu_tex.override_view.unwrap_or(gpu_tex.image.view()))
                         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
                 )
             })
@@ -306,6 +309,114 @@ impl TextureStore {
         // Now safe to drop retired images - all descriptor sets have been updated
         self.retired_images.clear();
         self.dirty = false;
+    }
+
+    /// Record a staging buffer → image copy on the given command buffer.
+    /// Used for streaming video frames without per-frame GPU synchronization.
+    pub fn record_image_upload(
+        &self,
+        cmd: vk::CommandBuffer,
+        id: TextureId,
+        staging_buffer: vk::Buffer,
+        width: u32,
+        height: u32,
+    ) {
+        let Some(gpu_tex) = self.textures.get(id) else {
+            return;
+        };
+        let image = gpu_tex.image.raw();
+
+        unsafe {
+            // SHADER_READ_ONLY → TRANSFER_DST
+            let barrier = vk::ImageMemoryBarrier::default()
+                .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .image(image)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .src_access_mask(vk::AccessFlags::SHADER_READ)
+                .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE);
+
+            self.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier],
+            );
+
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(0)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+                .image_extent(vk::Extent3D {
+                    width,
+                    height,
+                    depth: 1,
+                });
+
+            self.device.cmd_copy_buffer_to_image(
+                cmd,
+                staging_buffer,
+                image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+            );
+
+            // TRANSFER_DST → SHADER_READ_ONLY
+            let barrier = vk::ImageMemoryBarrier::default()
+                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .image(image)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .dst_access_mask(vk::AccessFlags::SHADER_READ);
+
+            self.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier],
+            );
+        }
+    }
+
+    /// Override the VkImageView used for a texture's descriptor.
+    /// Used by the GPU video decode path to point at YuvConverter's output.
+    pub fn set_override_view(&mut self, id: TextureId, view: vk::ImageView) {
+        if let Some(gpu_tex) = self.textures.get_mut(id) {
+            if gpu_tex.override_view != Some(view) {
+                gpu_tex.override_view = Some(view);
+                self.dirty = true;
+            }
+        }
     }
 
     pub fn resolve(&self, id: TextureId) -> u32 {

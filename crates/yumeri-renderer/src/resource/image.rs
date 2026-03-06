@@ -24,9 +24,22 @@ impl Image {
         usage: vk::ImageUsageFlags,
         location: MemoryLocation,
     ) -> Result<Self> {
+        Self::new_with_flags(gpu, width, height, format, usage, location, vk::ImageCreateFlags::empty())
+    }
+
+    pub fn new_with_flags(
+        gpu: &GpuContext,
+        width: u32,
+        height: u32,
+        format: vk::Format,
+        usage: vk::ImageUsageFlags,
+        location: MemoryLocation,
+        flags: vk::ImageCreateFlags,
+    ) -> Result<Self> {
         let image_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(format)
+            .flags(flags)
             .extent(vk::Extent3D {
                 width,
                 height,
@@ -131,7 +144,7 @@ impl Drop for Image {
     }
 }
 
-fn create_image_view(
+pub(crate) fn create_image_view(
     device: &ash::Device,
     image: vk::Image,
     format: vk::Format,

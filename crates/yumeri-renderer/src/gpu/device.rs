@@ -1,10 +1,23 @@
+use std::ffi::CStr;
+
 use ash::vk;
 
 use crate::error::{RendererError, Result};
 
+/// Vulkan Video decode extensions to enable when available.
+const VIDEO_EXTENSIONS: &[&CStr] = &[
+    vk::KHR_VIDEO_QUEUE_NAME,
+    vk::KHR_VIDEO_DECODE_QUEUE_NAME,
+    vk::KHR_VIDEO_DECODE_H264_NAME,
+    vk::KHR_VIDEO_DECODE_H265_NAME,
+    vk::KHR_VIDEO_DECODE_AV1_NAME,
+];
+
 #[derive(Clone, Copy)]
 pub struct QueueFamilyIndices {
     pub graphics: u32,
+    /// Video decode queue family (None if Vulkan Video not supported).
+    pub video_decode: Option<u32>,
 }
 
 pub struct VulkanDevice {
@@ -12,6 +25,8 @@ pub struct VulkanDevice {
     physical_device: vk::PhysicalDevice,
     queue_family_indices: QueueFamilyIndices,
     graphics_queue: vk::Queue,
+    video_decode_queue: Option<vk::Queue>,
+    enabled_video_extensions: Vec<&'static CStr>,
 }
 
 impl VulkanDevice {
@@ -23,19 +38,56 @@ impl VulkanDevice {
         let (physical_device, queue_family_indices) =
             pick_physical_device(instance, surface_loader, surface)?;
 
-        let queue_priorities = [1.0f32];
-        let queue_create_info = vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(queue_family_indices.graphics)
-            .queue_priorities(&queue_priorities);
-        let queue_create_infos = [queue_create_info];
+        // Check which video extensions are available
+        let available_extensions =
+            unsafe { instance.enumerate_device_extension_properties(physical_device)? };
+        let available_names: Vec<&CStr> = available_extensions
+            .iter()
+            .map(|ext| unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) })
+            .collect();
 
-        let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
+        let enabled_video_extensions: Vec<&'static CStr> = VIDEO_EXTENSIONS
+            .iter()
+            .filter(|&&ext| available_names.iter().any(|&name| name == ext))
+            .copied()
+            .collect();
+
+        if !enabled_video_extensions.is_empty() {
+            let names: Vec<_> = enabled_video_extensions
+                .iter()
+                .map(|e| e.to_string_lossy())
+                .collect();
+            log::info!("Vulkan Video extensions available: {}", names.join(", "));
+        }
+
+        // Build queue create infos
+        let queue_priorities = [1.0f32];
+        let mut queue_create_infos = vec![vk::DeviceQueueCreateInfo::default()
+            .queue_family_index(queue_family_indices.graphics)
+            .queue_priorities(&queue_priorities)];
+
+        if let Some(vd_idx) = queue_family_indices.video_decode {
+            if vd_idx != queue_family_indices.graphics {
+                queue_create_infos.push(
+                    vk::DeviceQueueCreateInfo::default()
+                        .queue_family_index(vd_idx)
+                        .queue_priorities(&queue_priorities),
+                );
+            }
+        }
+
+        // Collect all device extensions
+        let mut all_extensions: Vec<*const i8> = vec![ash::khr::swapchain::NAME.as_ptr()];
+        for ext in &enabled_video_extensions {
+            all_extensions.push(ext.as_ptr());
+        }
 
         let mut vulkan_12_features = vk::PhysicalDeviceVulkan12Features::default()
             .descriptor_binding_partially_bound(true)
             .descriptor_binding_sampled_image_update_after_bind(true)
             .runtime_descriptor_array(true)
-            .shader_sampled_image_array_non_uniform_indexing(true);
+            .shader_sampled_image_array_non_uniform_indexing(true)
+            .timeline_semaphore(true);
 
         let mut vulkan_13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
@@ -43,7 +95,7 @@ impl VulkanDevice {
 
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&device_extensions)
+            .enabled_extension_names(&all_extensions)
             .push_next(&mut vulkan_12_features)
             .push_next(&mut vulkan_13_features);
 
@@ -53,8 +105,12 @@ impl VulkanDevice {
         let graphics_queue =
             unsafe { device.get_device_queue(queue_family_indices.graphics, 0) };
 
+        let video_decode_queue = queue_family_indices.video_decode.map(|idx| unsafe {
+            device.get_device_queue(idx, 0)
+        });
+
         let props = unsafe { instance.get_physical_device_properties(physical_device) };
-        let name = unsafe { std::ffi::CStr::from_ptr(props.device_name.as_ptr()) };
+        let name = unsafe { CStr::from_ptr(props.device_name.as_ptr()) };
         log::info!("Selected GPU: {}", name.to_string_lossy());
 
         Ok(Self {
@@ -62,6 +118,8 @@ impl VulkanDevice {
             physical_device,
             queue_family_indices,
             graphics_queue,
+            video_decode_queue,
+            enabled_video_extensions,
         })
     }
 
@@ -79,6 +137,18 @@ impl VulkanDevice {
 
     pub fn graphics_queue(&self) -> vk::Queue {
         self.graphics_queue
+    }
+
+    pub fn video_decode_queue(&self) -> Option<vk::Queue> {
+        self.video_decode_queue
+    }
+
+    pub fn has_video_decode_support(&self) -> bool {
+        !self.enabled_video_extensions.is_empty()
+    }
+
+    pub fn enabled_video_extensions(&self) -> &[&'static CStr] {
+        &self.enabled_video_extensions
     }
 }
 
@@ -101,7 +171,6 @@ fn pick_physical_device(
         return Err(RendererError::NoSuitableGpu);
     }
 
-    // Prefer discrete GPU, fallback to integrated
     let mut best: Option<(vk::PhysicalDevice, QueueFamilyIndices, bool)> = None;
 
     for &pd in &devices {
@@ -135,23 +204,37 @@ fn find_queue_families(
     let families =
         unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
 
+    let mut graphics = None;
+    let mut video_decode = None;
+
     for (i, family) in families.iter().enumerate() {
         let i = i as u32;
 
-        if !family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-            continue;
+        if graphics.is_none()
+            && family.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+        {
+            let present_support = unsafe {
+                surface_loader
+                    .get_physical_device_surface_support(physical_device, i, surface)
+                    .unwrap_or(false)
+            };
+            if present_support {
+                graphics = Some(i);
+            }
         }
 
-        let present_support = unsafe {
-            surface_loader
-                .get_physical_device_surface_support(physical_device, i, surface)
-                .unwrap_or(false)
-        };
-
-        if present_support {
-            return Some(QueueFamilyIndices { graphics: i });
+        // Detect video decode queue family
+        if video_decode.is_none()
+            && family
+                .queue_flags
+                .contains(vk::QueueFlags::VIDEO_DECODE_KHR)
+        {
+            video_decode = Some(i);
         }
     }
 
-    None
+    graphics.map(|g| QueueFamilyIndices {
+        graphics: g,
+        video_decode,
+    })
 }

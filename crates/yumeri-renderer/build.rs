@@ -16,6 +16,7 @@ fn main() {
     let shaders = [
         ("sdf_2d.vert", shaderc::ShaderKind::Vertex),
         ("sdf_2d.frag", shaderc::ShaderKind::Fragment),
+        ("yuv_to_rgb.comp", shaderc::ShaderKind::Compute),
     ];
 
     for (filename, kind) in &shaders {

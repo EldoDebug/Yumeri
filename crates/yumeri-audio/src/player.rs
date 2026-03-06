@@ -220,6 +220,16 @@ pub enum PlaybackState {
     Stopped = 2,
 }
 
+impl From<u8> for PlaybackState {
+    fn from(val: u8) -> Self {
+        match val {
+            0 => Self::Playing,
+            1 => Self::Paused,
+            _ => Self::Stopped,
+        }
+    }
+}
+
 /// Handle to a playing audio stream. Clone + Send — safe to share across threads.
 ///
 /// All control methods (play/pause/stop/volume) operate via lock-free atomics.
@@ -275,11 +285,7 @@ impl AudioHandle {
     }
 
     pub fn state(&self) -> PlaybackState {
-        match self.state.playback.load(Ordering::Relaxed) {
-            0 => PlaybackState::Playing,
-            1 => PlaybackState::Paused,
-            _ => PlaybackState::Stopped,
-        }
+        PlaybackState::from(self.state.playback.load(Ordering::Relaxed))
     }
 
     pub fn position_secs(&self) -> f64 {
