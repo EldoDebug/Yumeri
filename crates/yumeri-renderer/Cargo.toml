@@ -15,6 +15,7 @@ slotmap = "1.1.1"
 thiserror = "2"
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-image = { version = "0.1.0", path = "../yumeri-image" }
+yumeri-types = { version = "0.1.0", path = "../yumeri-types" }
 yumeri-video = { version = "0.1.0", path = "../yumeri-video" }
 
 [build-dependencies]

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use yumeri_animation::easing::Easing;
 use yumeri_animation::handle::RawHandle;
-use yumeri_renderer::Color;
+use yumeri_types::Color;
 
 #[derive(Clone)]
 pub struct TransitionDef {

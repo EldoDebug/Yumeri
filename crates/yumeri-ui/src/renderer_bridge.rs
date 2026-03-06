@@ -1,6 +1,5 @@
 use slotmap::SlotMap;
-use yumeri_renderer::Color;
-use yumeri_renderer::ShapeType;
+use yumeri_types::{Color, ShapeType};
 use yumeri_renderer::ui::Scene;
 
 use crate::element::WidgetType;

@@ -3226,6 +3226,7 @@ dependencies = [
  "yumeri-animation",
  "yumeri-font",
  "yumeri-renderer",
+ "yumeri-types",
  "yumeri-ui",
  "yumeri-video",
 ]
@@ -3272,8 +3273,13 @@ dependencies = [
  "thiserror 2.0.18",
  "yumeri-font",
  "yumeri-image",
+ "yumeri-types",
  "yumeri-video",
 ]
+
+[[package]]
+name = "yumeri-types"
+version = "0.1.0"
 
 [[package]]
 name = "yumeri-ui"
@@ -3285,6 +3291,7 @@ dependencies = [
  "yumeri-app",
  "yumeri-font",
  "yumeri-renderer",
+ "yumeri-types",
 ]
 
 [[package]]

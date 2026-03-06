@@ -1,4 +1,4 @@
-use yumeri_renderer::Color;
+use yumeri_types::Color;
 
 use crate::element::{Element, ElementKind, WidgetElement, WidgetProps, WidgetType};
 use crate::style::{Align, Dimension, Direction, Edges, Justify, Style};

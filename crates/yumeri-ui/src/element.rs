@@ -1,6 +1,7 @@
 use std::any::TypeId;
 
-use yumeri_renderer::{Color, TextureId};
+use yumeri_renderer::TextureId;
+use yumeri_types::Color;
 
 use crate::callback::AnyCallback;
 use crate::component::{Component, ComponentBox};

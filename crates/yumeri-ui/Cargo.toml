@@ -9,6 +9,7 @@ slotmap = "1"
 yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }
 yumeri-renderer = { version = "0.1.0", path = "../yumeri-renderer" }
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
+yumeri-types = { version = "0.1.0", path = "../yumeri-types" }
 
 [dev-dependencies]
 yumeri-app = { version = "0.1.0", path = "../yumeri-app" }

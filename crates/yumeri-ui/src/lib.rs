@@ -26,7 +26,7 @@ pub mod prelude {
     pub use crate::view_ctx::ViewCtx;
     pub use crate::widget::*;
 
-    pub use yumeri_renderer::Color;
+    pub use yumeri_types::Color;
 }
 
 // Convenience re-exports at crate root

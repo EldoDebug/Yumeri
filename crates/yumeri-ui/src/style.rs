@@ -1,4 +1,4 @@
-use yumeri_renderer::Color;
+use yumeri_types::Color;
 
 use crate::transition::TransitionDef;
 
