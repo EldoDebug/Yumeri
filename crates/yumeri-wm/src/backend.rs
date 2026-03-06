@@ -8,8 +8,32 @@ use wayland_client::protocol::{wl_compositor, wl_keyboard, wl_pointer, wl_regist
 use wayland_client::{Connection, Dispatch, QueueHandle};
 use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 
-use super::{Backend, BackendEvent};
 use crate::error::{Result, WmError};
+
+#[derive(Debug, Clone)]
+pub enum BackendEvent {
+    FrameRequest,
+    KeyInput {
+        keycode: u32,
+        pressed: bool,
+        time: u32,
+    },
+    PointerMotion {
+        x: f64,
+        y: f64,
+        time: u32,
+    },
+    PointerButton {
+        button: u32,
+        pressed: bool,
+        time: u32,
+    },
+    Resize {
+        width: u32,
+        height: u32,
+    },
+    Shutdown,
+}
 
 pub struct WaylandBackend {
     conn: Connection,
@@ -107,10 +131,8 @@ impl WaylandBackend {
         let surface = self.state.surface.as_ref().unwrap();
         surface.id().as_ptr() as *mut std::ffi::c_void
     }
-}
 
-impl Backend for WaylandBackend {
-    fn dispatch(&mut self) -> Result<()> {
+    pub fn dispatch(&mut self) -> Result<()> {
         self.queue
             .dispatch_pending(&mut self.state)
             .map_err(WmError::WaylandDispatch)?;
@@ -127,25 +149,25 @@ impl Backend for WaylandBackend {
         Ok(())
     }
 
-    fn next_event(&mut self) -> Option<BackendEvent> {
+    pub fn next_event(&mut self) -> Option<BackendEvent> {
         self.state.events.pop_front()
     }
 
-    fn raw_display_handle(&self) -> RawDisplayHandle {
+    pub fn raw_display_handle(&self) -> RawDisplayHandle {
         let ptr = NonNull::new(self.wl_display_ptr()).unwrap();
         RawDisplayHandle::Wayland(WaylandDisplayHandle::new(ptr))
     }
 
-    fn raw_window_handle(&self) -> RawWindowHandle {
+    pub fn raw_window_handle(&self) -> RawWindowHandle {
         let ptr = NonNull::new(self.wl_surface_ptr()).unwrap();
         RawWindowHandle::Wayland(WaylandWindowHandle::new(ptr))
     }
 
-    fn output_size(&self) -> (u32, u32) {
+    pub fn output_size(&self) -> (u32, u32) {
         (self.state.width, self.state.height)
     }
 
-    fn present(&mut self) {
+    pub fn present(&mut self) {
         if let Some(surface) = &self.state.surface {
             surface.frame(&self.queue.handle(), ());
             surface.commit();

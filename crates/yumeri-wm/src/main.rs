@@ -14,8 +14,7 @@ use std::collections::HashMap;
 use slotmap::SlotMap;
 use wayland_server::{Display, ListeningSocket};
 
-use backend::wayland::WaylandBackend;
-use backend::Backend;
+use backend::WaylandBackend;
 use compositor::CompositorState;
 use shell::focus::FocusStack;
 
@@ -59,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or_else(|| error::WmError::General("Failed to create keymap".into()))?;
 
     let state = CompositorState {
-        backend: Box::new(backend),
+        backend,
         gpu,
         render_state,
 

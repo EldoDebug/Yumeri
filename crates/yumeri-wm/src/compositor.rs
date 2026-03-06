@@ -7,12 +7,12 @@ use wayland_server::backend::ObjectId;
 use wayland_server::Resource;
 use yumeri_renderer::{GpuContext, TextureId, WindowRenderState};
 
-use crate::backend::Backend;
+use crate::backend::WaylandBackend;
 use crate::shell::focus::FocusStack;
 use crate::shell::window::{ManagedWindow, WindowId};
 
 pub struct CompositorState {
-    pub backend: Box<dyn Backend>,
+    pub backend: WaylandBackend,
     pub gpu: GpuContext,
     pub render_state: WindowRenderState,
 
