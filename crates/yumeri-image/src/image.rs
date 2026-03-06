@@ -13,7 +13,7 @@ pub struct Image {
 }
 
 impl Image {
-    pub(crate) fn from_raw(data: Vec<u8>, width: u32, height: u32, format: PixelFormat) -> Self {
+    pub fn from_raw(data: Vec<u8>, width: u32, height: u32, format: PixelFormat) -> Self {
         let expected = width as usize * height as usize * format.bytes_per_pixel();
         debug_assert_eq!(
             data.len(),

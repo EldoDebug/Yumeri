@@ -8,7 +8,7 @@ pub struct VulkanInstance {
     entry: ash::Entry,
     instance: ash::Instance,
     #[cfg(debug_assertions)]
-    debug_utils_loader: ash::ext::debug_utils::Instance,
+    debug_utils_loader: Option<ash::ext::debug_utils::Instance>,
     #[cfg(debug_assertions)]
     debug_messenger: vk::DebugUtilsMessengerEXT,
 }
@@ -28,10 +28,34 @@ impl VulkanInstance {
             ash_window::enumerate_required_extensions(display_handle)?.to_vec();
 
         #[cfg(debug_assertions)]
-        extension_names.push(ash::ext::debug_utils::NAME.as_ptr());
+        let debug_utils_available = {
+            let available_extensions = unsafe { entry
+                .enumerate_instance_extension_properties(None) }
+                .unwrap_or_default();
+            let available = available_extensions.iter().any(|ext| {
+                let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+                name == ash::ext::debug_utils::NAME
+            });
+            if available {
+                extension_names.push(ash::ext::debug_utils::NAME.as_ptr());
+            }
+            available
+        };
 
         let layer_names: Vec<*const i8> = if cfg!(debug_assertions) {
-            vec![c"VK_LAYER_KHRONOS_validation".as_ptr()]
+            let available = unsafe { entry
+                .enumerate_instance_layer_properties() }
+                .unwrap_or_default();
+            let validation_available = available.iter().any(|layer| {
+                let name = unsafe { CStr::from_ptr(layer.layer_name.as_ptr()) };
+                name == c"VK_LAYER_KHRONOS_validation"
+            });
+            if validation_available {
+                vec![c"VK_LAYER_KHRONOS_validation".as_ptr()]
+            } else {
+                log::warn!("Vulkan validation layer not available, skipping");
+                vec![]
+            }
         } else {
             vec![]
         };
@@ -44,7 +68,7 @@ impl VulkanInstance {
         let instance = unsafe { entry.create_instance(&instance_info, None)? };
 
         #[cfg(debug_assertions)]
-        let (debug_utils_loader, debug_messenger) = {
+        let (debug_utils_loader, debug_messenger) = if debug_utils_available {
             let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
                 .message_severity(
                     vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -60,7 +84,10 @@ impl VulkanInstance {
             let loader = ash::ext::debug_utils::Instance::new(&entry, &instance);
             let messenger =
                 unsafe { loader.create_debug_utils_messenger(&debug_info, None)? };
-            (loader, messenger)
+            (Some(loader), messenger)
+        } else {
+            log::warn!("Vulkan debug utils extension not available, skipping");
+            (None, vk::DebugUtilsMessengerEXT::null())
         };
 
         log::info!("Vulkan instance created (API 1.3)");
@@ -88,8 +115,9 @@ impl Drop for VulkanInstance {
     fn drop(&mut self) {
         unsafe {
             #[cfg(debug_assertions)]
-            self.debug_utils_loader
-                .destroy_debug_utils_messenger(self.debug_messenger, None);
+            if let Some(ref loader) = self.debug_utils_loader {
+                loader.destroy_debug_utils_messenger(self.debug_messenger, None);
+            }
             self.instance.destroy_instance(None);
         }
     }

@@ -37,4 +37,8 @@ impl<'a> RenderContext2D<'a> {
     pub fn load_texture(&mut self, path: impl Into<PathBuf>) -> TextureId {
         self.texture_store.load(self.gpu, path)
     }
+
+    pub fn remove_texture(&mut self, id: TextureId) {
+        self.texture_store.remove(id);
+    }
 }
