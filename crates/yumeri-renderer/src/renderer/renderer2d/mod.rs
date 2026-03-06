@@ -1,5 +1,4 @@
 mod batch;
-pub(crate) mod pipeline;
 pub(crate) mod shapes;
 
 use ash::vk;

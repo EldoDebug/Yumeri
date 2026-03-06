@@ -6,15 +6,18 @@ use crate::frame::MAX_FRAMES_IN_FLIGHT;
 use crate::gpu::GpuContext;
 use crate::resource::Buffer;
 
-use super::renderer2d::pipeline::Pipeline2D;
+use super::pipeline::{GfxPipeline, PipelineBuilder};
 use super::renderer2d::shapes::FLOATS_PER_INSTANCE;
+
+const VERT_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sdf_2d.vert.spv"));
+const FRAG_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sdf_2d.frag.spv"));
 
 pub(crate) const MAX_INSTANCES: usize = 4096;
 pub(crate) const INITIAL_BUFFER_SIZE: u64 =
     (MAX_INSTANCES * FLOATS_PER_INSTANCE * size_of::<f32>()) as u64;
 
 pub(crate) struct InstancePipeline {
-    pub pipeline: Pipeline2D,
+    pub pipeline: GfxPipeline,
     pub instance_buffers: Vec<Buffer>,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
@@ -28,7 +31,17 @@ impl InstancePipeline {
     ) -> Result<Self> {
         let device = gpu.ash_device();
 
-        let pipeline = Pipeline2D::new(device, color_format, texture_descriptor_set_layout)?;
+        let pipeline = PipelineBuilder::new(device, color_format, VERT_SPV, FRAG_SPV)
+            .push_constant(vk::ShaderStageFlags::VERTEX, 0, 8)
+            .descriptor_set(&[
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(0)
+                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::VERTEX),
+            ])
+            .external_set_layout(texture_descriptor_set_layout)
+            .build()?;
 
         let frames_in_flight = MAX_FRAMES_IN_FLIGHT;
         let mut instance_buffers = Vec::with_capacity(frames_in_flight);
@@ -53,7 +66,7 @@ impl InstancePipeline {
         let descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None)? };
 
         let layouts: Vec<_> = (0..frames_in_flight)
-            .map(|_| pipeline.ssbo_descriptor_set_layout)
+            .map(|_| pipeline.owned_set_layout(0))
             .collect();
         let alloc_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
