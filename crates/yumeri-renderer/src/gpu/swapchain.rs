@@ -4,6 +4,33 @@ use crate::error::Result;
 use crate::gpu::surface::Surface;
 use crate::gpu::GpuContext;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreferredPresentMode {
+    /// VSync ON (FIFO)
+    Fifo,
+    /// Triple buffering (MAILBOX)
+    #[default]
+    Mailbox,
+    /// VSync OFF (IMMEDIATE)
+    Immediate,
+}
+
+impl PreferredPresentMode {
+    fn to_vk(self) -> vk::PresentModeKHR {
+        match self {
+            Self::Fifo => vk::PresentModeKHR::FIFO,
+            Self::Mailbox => vk::PresentModeKHR::MAILBOX,
+            Self::Immediate => vk::PresentModeKHR::IMMEDIATE,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct SwapchainConfig {
+    pub preferred_present_mode: PreferredPresentMode,
+    pub transparent: bool,
+}
+
 pub struct Swapchain {
     swapchain: vk::SwapchainKHR,
     swapchain_loader: ash::khr::swapchain::Device,
@@ -21,12 +48,13 @@ impl Swapchain {
         surface: &Surface,
         width: u32,
         height: u32,
+        config: &SwapchainConfig,
     ) -> Result<Self> {
         let swapchain_loader =
             ash::khr::swapchain::Device::new(gpu.ash_instance(), gpu.ash_device());
 
         let (swapchain, format, extent, present_mode) =
-            create_swapchain(gpu, surface, &swapchain_loader, width, height, vk::SwapchainKHR::null())?;
+            create_swapchain(gpu, surface, &swapchain_loader, width, height, vk::SwapchainKHR::null(), config)?;
 
         let images = unsafe { swapchain_loader.get_swapchain_images(swapchain)? };
         let image_views = create_image_views(gpu.ash_device(), &images, format.format)?;
@@ -49,6 +77,7 @@ impl Swapchain {
         surface: &Surface,
         width: u32,
         height: u32,
+        config: &SwapchainConfig,
     ) -> Result<()> {
         unsafe {
             let _ = gpu.ash_device().device_wait_idle();
@@ -58,7 +87,7 @@ impl Swapchain {
 
         let old_swapchain = self.swapchain;
         let (swapchain, format, extent, present_mode) =
-            create_swapchain(gpu, surface, &self.swapchain_loader, width, height, old_swapchain)?;
+            create_swapchain(gpu, surface, &self.swapchain_loader, width, height, old_swapchain, config)?;
 
         unsafe {
             self.swapchain_loader
@@ -139,6 +168,7 @@ fn create_swapchain(
     width: u32,
     height: u32,
     old_swapchain: vk::SwapchainKHR,
+    config: &SwapchainConfig,
 ) -> Result<(
     vk::SwapchainKHR,
     vk::SurfaceFormatKHR,
@@ -159,10 +189,11 @@ fn create_swapchain(
         .copied()
         .unwrap_or(formats[0]);
 
-    let present_mode = if present_modes.contains(&vk::PresentModeKHR::MAILBOX) {
-        vk::PresentModeKHR::MAILBOX
+    let preferred_vk = config.preferred_present_mode.to_vk();
+    let present_mode = if present_modes.contains(&preferred_vk) {
+        preferred_vk
     } else {
-        vk::PresentModeKHR::FIFO
+        vk::PresentModeKHR::FIFO // guaranteed to be available
     };
 
     let extent = if capabilities.current_extent.width != u32::MAX {
@@ -185,6 +216,22 @@ fn create_swapchain(
         image_count = image_count.min(capabilities.max_image_count);
     }
 
+    let composite_alpha = if config.transparent {
+        let supported = capabilities.supported_composite_alpha;
+        if supported.contains(vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED) {
+            vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED
+        } else if supported.contains(vk::CompositeAlphaFlagsKHR::POST_MULTIPLIED) {
+            vk::CompositeAlphaFlagsKHR::POST_MULTIPLIED
+        } else if supported.contains(vk::CompositeAlphaFlagsKHR::INHERIT) {
+            vk::CompositeAlphaFlagsKHR::INHERIT
+        } else {
+            log::warn!("Transparent background requested but no transparent composite alpha mode is supported; falling back to OPAQUE");
+            vk::CompositeAlphaFlagsKHR::OPAQUE
+        }
+    } else {
+        vk::CompositeAlphaFlagsKHR::OPAQUE
+    };
+
     let create_info = vk::SwapchainCreateInfoKHR::default()
         .surface(surface.raw())
         .min_image_count(image_count)
@@ -195,7 +242,7 @@ fn create_swapchain(
         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(capabilities.current_transform)
-        .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+        .composite_alpha(composite_alpha)
         .present_mode(present_mode)
         .clipped(true)
         .old_swapchain(old_swapchain);

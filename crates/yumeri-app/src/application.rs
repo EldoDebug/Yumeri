@@ -1,15 +1,16 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::WindowId;
 use yumeri_renderer::GpuContext;
 
 use crate::delegate::{AppContext, AppDelegate, CloseResponse};
 use crate::error::AppError;
-use crate::window::{Window, WindowBuilder, WindowContext, WindowEntry};
+use crate::window::{FullscreenMode, PresentMode, Window, WindowBuilder, WindowContext, WindowEntry};
 
 /// Top-level application entry point.
 ///
@@ -21,6 +22,7 @@ impl Application {
         ApplicationBuilder {
             delegate: None,
             initial_windows: Vec::new(),
+            target_fps: None,
         }
     }
 }
@@ -29,6 +31,7 @@ impl Application {
 pub struct ApplicationBuilder {
     delegate: Option<Box<dyn AppDelegate>>,
     initial_windows: Vec<WindowBuilder>,
+    target_fps: Option<u32>,
 }
 
 impl ApplicationBuilder {
@@ -42,14 +45,24 @@ impl ApplicationBuilder {
         self
     }
 
+    pub fn with_target_fps(mut self, fps: u32) -> Self {
+        self.target_fps = if fps == 0 { None } else { Some(fps) };
+        self
+    }
+
     pub fn run(self) -> Result<(), AppError> {
         let event_loop = EventLoop::new()?;
+        let target_frame_duration = self
+            .target_fps
+            .map(|fps| Duration::from_secs_f64(1.0 / fps as f64));
         let mut runner = Runner {
             delegate: self.delegate,
             windows: HashMap::new(),
             pending_builders: self.initial_windows,
             requests: Vec::new(),
             gpu_context: None,
+            target_frame_duration,
+            last_frame_time: Instant::now(),
         };
         event_loop.run_app(&mut runner)?;
         Ok(())
@@ -70,6 +83,8 @@ struct Runner {
     pending_builders: Vec<WindowBuilder>,
     requests: Vec<AppRequest>,
     gpu_context: Option<GpuContext>,
+    target_frame_duration: Option<Duration>,
+    last_frame_time: Instant,
 }
 
 impl Runner {
@@ -90,11 +105,33 @@ impl Runner {
         event_loop: &ActiveEventLoop,
         builder: WindowBuilder,
     ) -> Result<WindowId, AppError> {
-        let enable_2d = builder.enable_renderer_2d;
-        let enable_ui = builder.enable_ui_renderer;
+        let WindowBuilder {
+            attrs,
+            delegate,
+            enable_renderer_2d: enable_2d,
+            enable_ui_renderer: enable_ui,
+            present_mode,
+            transparent,
+            fullscreen,
+            cursor_visible,
+            window_icon,
+        } = builder;
         let needs_rendering = enable_2d || enable_ui;
 
-        let winit_window = event_loop.create_window(builder.attrs)?;
+        // Apply fullscreen to winit attrs for borderless (exclusive is applied post-creation)
+        let mut attrs = attrs;
+        if let Some(FullscreenMode::Borderless) = fullscreen {
+            attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+        }
+
+        // Apply window icon
+        if let Some((rgba, w, h)) = window_icon {
+            if let Ok(icon) = winit::window::Icon::from_rgba(rgba, w, h) {
+                attrs = attrs.with_window_icon(Some(icon));
+            }
+        }
+
+        let winit_window = event_loop.create_window(attrs)?;
         let id = winit_window.id();
 
         let render_state = if needs_rendering {
@@ -103,6 +140,15 @@ impl Runner {
                 let display_handle = winit_window.display_handle().unwrap().as_raw();
                 let window_handle = winit_window.window_handle().unwrap().as_raw();
                 let size = winit_window.inner_size();
+                let preferred_present_mode = match present_mode {
+                    PresentMode::VSync => yumeri_renderer::PreferredPresentMode::Fifo,
+                    PresentMode::Mailbox => yumeri_renderer::PreferredPresentMode::Mailbox,
+                    PresentMode::Immediate => yumeri_renderer::PreferredPresentMode::Immediate,
+                };
+                let swapchain_config = yumeri_renderer::SwapchainConfig {
+                    preferred_present_mode,
+                    transparent,
+                };
                 match yumeri_renderer::WindowRenderState::new(
                     gpu,
                     display_handle,
@@ -111,6 +157,7 @@ impl Runner {
                     size.height,
                     enable_2d,
                     enable_ui,
+                    swapchain_config,
                 ) {
                     Ok(state) => Some(state),
                     Err(e) => {
@@ -131,9 +178,20 @@ impl Runner {
             None
         };
 
+        // Apply post-creation settings
+        if let Some(visible) = cursor_visible {
+            winit_window.set_cursor_visible(visible);
+        }
+
+        let window = Window::new(winit_window);
+
+        if let Some(FullscreenMode::Exclusive) = fullscreen {
+            window.set_fullscreen(Some(FullscreenMode::Exclusive));
+        }
+
         let mut entry = WindowEntry {
-            window: Window::new(winit_window),
-            delegate: builder.delegate,
+            window,
+            delegate,
             render_state,
             ui_scene,
         };
@@ -355,6 +413,25 @@ impl ApplicationHandler for Runner {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.process_requests(event_loop);
+
+        if let Some(target_duration) = self.target_frame_duration {
+            let elapsed = self.last_frame_time.elapsed();
+            if elapsed < target_duration {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    self.last_frame_time + target_duration,
+                ));
+                return;
+            }
+            self.last_frame_time += target_duration;
+            // If we've fallen behind by more than one frame, reset to avoid a burst
+            if self.last_frame_time.elapsed() > target_duration {
+                self.last_frame_time = Instant::now();
+            }
+
+            for entry in self.windows.values() {
+                entry.window.request_redraw();
+            }
+        }
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {

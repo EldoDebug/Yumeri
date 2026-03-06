@@ -6,7 +6,7 @@ mod window;
 pub use application::{Application, ApplicationBuilder};
 pub use delegate::{AppContext, AppDelegate, CloseResponse, WindowDelegate};
 pub use error::AppError;
-pub use window::{Window, WindowBuilder, WindowContext};
+pub use window::{FullscreenMode, PresentMode, Window, WindowBuilder, WindowContext};
 
 pub use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
 pub use winit::event::{ElementState, KeyEvent, MouseButton};

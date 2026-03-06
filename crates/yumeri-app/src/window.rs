@@ -1,9 +1,30 @@
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::window::WindowId;
+use winit::window::{WindowId, WindowLevel};
 use yumeri_renderer::texture::glyph_cache::GlyphCache;
 
 use crate::application::AppRequest;
 use crate::delegate::WindowDelegate;
+
+/// VSync / presentation mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PresentMode {
+    /// VSync ON (FIFO) – no tearing, higher input latency.
+    VSync,
+    /// Triple buffering (MAILBOX) – no tearing, low latency.
+    #[default]
+    Mailbox,
+    /// VSync OFF (IMMEDIATE) – lowest latency, may tear.
+    Immediate,
+}
+
+/// Fullscreen mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullscreenMode {
+    /// Borderless fullscreen on the current monitor.
+    Borderless,
+    /// Exclusive fullscreen – the monitor is driven at a dedicated video mode.
+    Exclusive,
+}
 
 /// A wrapper around [`winit::window::Window`].
 pub struct Window {
@@ -35,6 +56,41 @@ impl Window {
         self.inner.request_redraw();
     }
 
+    pub fn set_fullscreen(&self, mode: Option<FullscreenMode>) {
+        use winit::window::Fullscreen;
+        let fullscreen = mode.and_then(|m| match m {
+            FullscreenMode::Borderless => Some(Fullscreen::Borderless(None)),
+            FullscreenMode::Exclusive => {
+                let video_mode = self
+                    .inner
+                    .current_monitor()
+                    .and_then(|m| m.video_modes().next());
+                if video_mode.is_none() {
+                    log::warn!("No video mode available for exclusive fullscreen; ignoring");
+                }
+                video_mode.map(Fullscreen::Exclusive)
+            }
+        });
+        self.inner.set_fullscreen(fullscreen);
+    }
+
+    pub fn set_always_on_top(&self, on_top: bool) {
+        self.inner.set_window_level(window_level(on_top));
+    }
+
+    pub fn set_maximized(&self, maximized: bool) {
+        self.inner.set_maximized(maximized);
+    }
+
+    pub fn set_cursor_visible(&self, visible: bool) {
+        self.inner.set_cursor_visible(visible);
+    }
+
+    pub fn set_window_icon(&self, rgba: Vec<u8>, width: u32, height: u32) {
+        let icon = winit::window::Icon::from_rgba(rgba, width, height).ok();
+        self.inner.set_window_icon(icon);
+    }
+
     pub fn winit_window(&self) -> &winit::window::Window {
         &self.inner
     }
@@ -54,6 +110,11 @@ pub struct WindowBuilder {
     pub(crate) delegate: Option<Box<dyn WindowDelegate>>,
     pub(crate) enable_renderer_2d: bool,
     pub(crate) enable_ui_renderer: bool,
+    pub(crate) present_mode: PresentMode,
+    pub(crate) transparent: bool,
+    pub(crate) fullscreen: Option<FullscreenMode>,
+    pub(crate) cursor_visible: Option<bool>,
+    pub(crate) window_icon: Option<(Vec<u8>, u32, u32)>,
 }
 
 impl WindowBuilder {
@@ -63,6 +124,11 @@ impl WindowBuilder {
             delegate: None,
             enable_renderer_2d: false,
             enable_ui_renderer: false,
+            present_mode: PresentMode::default(),
+            transparent: false,
+            fullscreen: None,
+            cursor_visible: None,
+            window_icon: None,
         }
     }
 
@@ -109,6 +175,37 @@ impl WindowBuilder {
 
     pub fn with_transparent(mut self, transparent: bool) -> Self {
         self.attrs = self.attrs.with_transparent(transparent);
+        self.transparent = transparent;
+        self
+    }
+
+    pub fn with_fullscreen(mut self, mode: FullscreenMode) -> Self {
+        self.fullscreen = Some(mode);
+        self
+    }
+
+    pub fn with_present_mode(mut self, mode: PresentMode) -> Self {
+        self.present_mode = mode;
+        self
+    }
+
+    pub fn with_always_on_top(mut self, on_top: bool) -> Self {
+        self.attrs = self.attrs.with_window_level(window_level(on_top));
+        self
+    }
+
+    pub fn with_maximized(mut self, maximized: bool) -> Self {
+        self.attrs = self.attrs.with_maximized(maximized);
+        self
+    }
+
+    pub fn with_cursor_visible(mut self, visible: bool) -> Self {
+        self.cursor_visible = Some(visible);
+        self
+    }
+
+    pub fn with_window_icon(mut self, rgba: Vec<u8>, width: u32, height: u32) -> Self {
+        self.window_icon = Some((rgba, width, height));
         self
     }
 
@@ -136,6 +233,14 @@ impl WindowBuilder {
 impl Default for WindowBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn window_level(on_top: bool) -> WindowLevel {
+    if on_top {
+        WindowLevel::AlwaysOnTop
+    } else {
+        WindowLevel::Normal
     }
 }
 

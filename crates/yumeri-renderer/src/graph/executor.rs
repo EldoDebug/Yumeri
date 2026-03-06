@@ -13,7 +13,7 @@ impl GraphExecutor {
         swapchain_image: vk::Image,
         swapchain_image_view: vk::ImageView,
         extent: vk::Extent2D,
-        _swapchain_format: vk::Format,
+        clear_color: [f32; 4],
     ) {
         unsafe {
             // UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
@@ -51,7 +51,7 @@ impl GraphExecutor {
                     .store_op(vk::AttachmentStoreOp::STORE)
                     .clear_value(vk::ClearValue {
                         color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 1.0],
+                            float32: clear_color,
                         },
                     });
 

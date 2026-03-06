@@ -15,6 +15,7 @@ mod render_state;
 pub use context::RenderContext2D;
 pub use error::RendererError;
 pub use gpu::GpuContext;
+pub use gpu::swapchain::{PreferredPresentMode, SwapchainConfig};
 pub use render_state::WindowRenderState;
 pub use renderer::renderer2d::{Circle, Rect, RoundedRect};
 pub use text::TextStyle;

@@ -5,7 +5,7 @@ use crate::context::RenderContext2D;
 use crate::error::{RendererError, Result};
 use crate::frame::FrameSynchronizer;
 use crate::gpu::surface::Surface;
-use crate::gpu::swapchain::Swapchain;
+use crate::gpu::swapchain::{Swapchain, SwapchainConfig};
 use crate::gpu::GpuContext;
 use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder};
 use crate::renderer::renderer2d::Renderer2D;
@@ -18,6 +18,7 @@ use crate::video::VideoTexture;
 pub struct WindowRenderState {
     surface: Surface,
     swapchain: Swapchain,
+    swapchain_config: SwapchainConfig,
     frame_sync: FrameSynchronizer,
     renderer2d: Option<Renderer2D>,
     ui_renderer: Option<UiRenderer>,
@@ -35,9 +36,10 @@ impl WindowRenderState {
         height: u32,
         enable_2d: bool,
         enable_ui: bool,
+        swapchain_config: SwapchainConfig,
     ) -> Result<Self> {
         let surface = Surface::new(gpu, display_handle, window_handle)?;
-        let swapchain = Swapchain::new(gpu, &surface, width, height)?;
+        let swapchain = Swapchain::new(gpu, &surface, width, height, &swapchain_config)?;
         let frame_sync = FrameSynchronizer::new(gpu)?;
 
         let needs_textures = enable_2d || enable_ui;
@@ -74,6 +76,7 @@ impl WindowRenderState {
         Ok(Self {
             surface,
             swapchain,
+            swapchain_config,
             frame_sync,
             renderer2d,
             ui_renderer,
@@ -99,7 +102,7 @@ impl WindowRenderState {
             Err(RendererError::Vulkan(vk::Result::ERROR_OUT_OF_DATE_KHR)) => {
                 let extent = self.swapchain.extent();
                 self.swapchain
-                    .recreate(gpu, &self.surface, extent.width, extent.height)?;
+                    .recreate(gpu, &self.surface, extent.width, extent.height, &self.swapchain_config)?;
                 return Ok(());
             }
             Err(e) => return Err(e),
@@ -165,6 +168,7 @@ impl WindowRenderState {
         let (passes, resources, bb) = builder.build();
         let mut compiled = CompiledGraph::compile(passes, resources, bb);
 
+        let clear_alpha = if self.swapchain_config.transparent { 0.0 } else { 1.0 };
         let img_idx = frame.swapchain_image_index as usize;
         GraphExecutor::execute(
             gpu.ash_device(),
@@ -173,14 +177,14 @@ impl WindowRenderState {
             self.swapchain.images()[img_idx],
             self.swapchain.image_views()[img_idx],
             extent,
-            self.swapchain.format().format,
+            [0.0, 0.0, 0.0, clear_alpha],
         );
 
         let needs_recreate = self.frame_sync.end_frame(gpu, &self.swapchain, &frame)?;
         if needs_recreate {
             let extent = self.swapchain.extent();
             self.swapchain
-                .recreate(gpu, &self.surface, extent.width, extent.height)?;
+                .recreate(gpu, &self.surface, extent.width, extent.height, &self.swapchain_config)?;
         }
         Ok(())
     }
@@ -207,7 +211,7 @@ impl WindowRenderState {
         if width == 0 || height == 0 {
             return Ok(());
         }
-        self.swapchain.recreate(gpu, &self.surface, width, height)?;
+        self.swapchain.recreate(gpu, &self.surface, width, height, &self.swapchain_config)?;
         Ok(())
     }
 
