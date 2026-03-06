@@ -1,5 +1,6 @@
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::window::WindowId;
+use yumeri_renderer::texture::glyph_cache::GlyphCache;
 
 use crate::application::AppRequest;
 use crate::delegate::WindowDelegate;
@@ -146,6 +147,7 @@ pub struct WindowContext<'a> {
     window: &'a Window,
     requests: &'a mut Vec<AppRequest>,
     ui_scene: Option<&'a mut yumeri_renderer::ui::Scene>,
+    glyph_cache: Option<&'a mut GlyphCache>,
 }
 
 impl<'a> WindowContext<'a> {
@@ -153,11 +155,13 @@ impl<'a> WindowContext<'a> {
         window: &'a Window,
         requests: &'a mut Vec<AppRequest>,
         ui_scene: Option<&'a mut yumeri_renderer::ui::Scene>,
+        glyph_cache: Option<&'a mut GlyphCache>,
     ) -> Self {
         Self {
             window,
             requests,
             ui_scene,
+            glyph_cache,
         }
     }
 
@@ -175,6 +179,16 @@ impl<'a> WindowContext<'a> {
 
     pub fn ui_scene(&mut self) -> Option<&mut yumeri_renderer::ui::Scene> {
         self.ui_scene.as_deref_mut()
+    }
+
+    pub fn glyph_cache(&mut self) -> Option<&mut GlyphCache> {
+        self.glyph_cache.as_deref_mut()
+    }
+
+    pub fn ui_scene_and_glyph_cache(
+        &mut self,
+    ) -> (Option<&mut yumeri_renderer::ui::Scene>, Option<&mut GlyphCache>) {
+        (self.ui_scene.as_deref_mut(), self.glyph_cache.as_deref_mut())
     }
 
     pub fn create_window(&mut self, builder: WindowBuilder) {

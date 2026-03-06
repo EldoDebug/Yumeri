@@ -1,8 +1,14 @@
-use crate::event::EventPayload;
+use crate::event::{EventKind, EventPayload};
 use crate::tree::{UiNodeId, UiTree};
 
 pub(crate) fn dispatch_event(tree: &mut UiTree, target: UiNodeId, payload: &EventPayload) -> bool {
     let kind = payload.kind();
+
+    // MouseEnter/MouseLeave do not bubble
+    if matches!(kind, EventKind::MouseEnter | EventKind::MouseLeave) {
+        return tree.invoke_callback(target, kind, payload);
+    }
+
     let chain = build_bubble_chain(tree, target);
 
     for &node_id in &chain {

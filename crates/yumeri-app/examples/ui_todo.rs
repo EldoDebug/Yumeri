@@ -45,12 +45,6 @@ impl Component for TodoList {
             );
 
         for (i, item) in self.items.iter().enumerate() {
-            let label = if item.done {
-                format!("[x] {}", item.text)
-            } else {
-                format!("[ ] {}", item.text)
-            };
-
             let bg = if item.done {
                 Color::rgb(0.15, 0.3, 0.15)
             } else {
@@ -113,13 +107,14 @@ struct TodoDelegate {
 impl WindowDelegate for TodoDelegate {
     fn on_ui_setup(&mut self, ctx: &mut UiContext) {
         let size = ctx.surface_size();
-        let scene = ctx.scene();
-        self.ui.setup(scene, size);
+        let (scene, gc) = ctx.scene_and_glyph_cache();
+        self.ui.setup(scene, size, gc);
     }
 
     fn on_redraw_requested(&mut self, ctx: &mut WindowContext) {
-        if let Some(scene) = ctx.ui_scene() {
-            self.ui.tick(scene);
+        let (scene, gc) = ctx.ui_scene_and_glyph_cache();
+        if let Some(scene) = scene {
+            self.ui.tick(scene, gc);
         }
         ctx.request_redraw();
     }

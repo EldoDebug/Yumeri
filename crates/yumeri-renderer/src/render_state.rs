@@ -199,6 +199,10 @@ impl WindowRenderState {
         }
     }
 
+    pub fn glyph_cache_mut(&mut self) -> Option<&mut GlyphCache> {
+        self.glyph_cache.as_mut()
+    }
+
     pub fn on_resize(&mut self, gpu: &GpuContext, width: u32, height: u32) -> Result<()> {
         if width == 0 || height == 0 {
             return Ok(());

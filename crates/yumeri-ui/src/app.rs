@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use yumeri_renderer::texture::glyph_cache::GlyphCache;
 use yumeri_renderer::ui::Scene;
 
 use crate::component::Component;
@@ -8,7 +9,7 @@ use crate::event::focus::{focus_next, focus_prev};
 use crate::event::hit_test::hit_test;
 use crate::event::propagation::dispatch_event;
 use crate::reconciler::{mount_root_component, rebuild_component};
-use crate::renderer_bridge::{sync_text_nodes, sync_to_scene};
+use crate::renderer_bridge::sync_to_scene;
 use crate::tree::UiTree;
 
 pub struct UiApp<C: Component> {
@@ -29,13 +30,13 @@ impl<C: Component> UiApp<C> {
     }
 }
 
-// WindowDelegate implementation is in a separate impl block
-// that the user's crate (yumeri-app) sees through the trait.
-// Since yumeri-ui depends on yumeri-renderer but not yumeri-app,
-// we provide the methods that yumeri-app's WindowDelegate needs.
-
 impl<C: Component> UiApp<C> {
-    pub fn setup(&mut self, scene: &mut Scene, surface_size: (u32, u32)) {
+    pub fn setup(
+        &mut self,
+        scene: &mut Scene,
+        surface_size: (u32, u32),
+        glyph_cache: Option<&mut GlyphCache>,
+    ) {
         self.tree
             .set_viewport_size(surface_size.0 as f32, surface_size.1 as f32);
 
@@ -44,11 +45,11 @@ impl<C: Component> UiApp<C> {
         if let Some(create) = self.create.take() {
             let component = create();
             mount_root_component(&mut self.tree, component);
-            sync_to_scene(&mut self.tree, scene);
+            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache);
         }
     }
 
-    pub fn tick(&mut self, scene: &mut Scene) {
+    pub fn tick(&mut self, scene: &mut Scene, glyph_cache: Option<&mut GlyphCache>) {
         let now = std::time::Instant::now();
         let dt = self
             .last_frame
@@ -69,20 +70,11 @@ impl<C: Component> UiApp<C> {
             self.tree.needs_layout = true;
         }
 
-        // Sync to scene
+        // Sync to scene (includes text rendering)
         if self.tree.needs_layout {
-            sync_to_scene(&mut self.tree, scene);
+            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache);
             self.tree.needs_layout = false;
         }
-    }
-
-    pub fn sync_text(
-        &mut self,
-        scene: &mut Scene,
-        font: &mut yumeri_font::Font,
-        glyph_cache: &mut yumeri_renderer::texture::glyph_cache::GlyphCache,
-    ) {
-        sync_text_nodes(&mut self.tree, scene, font, glyph_cache);
     }
 
     pub fn on_resize(&mut self, width: u32, height: u32) {
@@ -91,7 +83,6 @@ impl<C: Component> UiApp<C> {
 
     pub fn on_mouse_click(&mut self, x: f32, y: f32) {
         if let Some(target) = hit_test(&self.tree, x, y) {
-            // Set focus to clicked node if focusable
             let focusable = self
                 .tree
                 .nodes
@@ -112,11 +103,9 @@ impl<C: Component> UiApp<C> {
         let new_hovered = hit_test(&self.tree, x, y);
 
         if new_hovered != self.tree.hovered_node {
-            // Mouse leave old
             if let Some(old) = self.tree.hovered_node {
                 dispatch_event(&mut self.tree, old, &EventPayload::MouseLeave);
             }
-            // Mouse enter new
             if let Some(new) = new_hovered {
                 dispatch_event(&mut self.tree, new, &EventPayload::MouseEnter);
             }
@@ -125,7 +114,6 @@ impl<C: Component> UiApp<C> {
     }
 
     pub fn on_key_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, alt: bool) {
-        // Tab navigation
         if key == "Tab" {
             if shift {
                 focus_prev(&mut self.tree);
@@ -135,7 +123,6 @@ impl<C: Component> UiApp<C> {
             return;
         }
 
-        // Dispatch to focused node
         if let Some(focused) = self.tree.focus.focused() {
             let info = KeyInfo {
                 key: key.to_string(),
@@ -181,9 +168,5 @@ impl<C: Component> UiApp<C> {
 
     pub fn tree_mut(&mut self) -> &mut UiTree {
         &mut self.tree
-    }
-
-    pub fn font(&mut self) -> Option<&mut yumeri_font::Font> {
-        self.font.as_mut()
     }
 }

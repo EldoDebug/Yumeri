@@ -3,6 +3,7 @@ use std::any::TypeId;
 use yumeri_renderer::{Color, TextureId};
 
 use crate::callback::AnyCallback;
+use crate::component::{Component, ComponentBox};
 use crate::event::EventKind;
 use crate::style::Style;
 
@@ -33,8 +34,32 @@ pub struct WidgetElement {
 
 pub struct ComponentElement {
     pub type_id: TypeId,
-    pub create: Box<dyn FnOnce() -> Box<dyn std::any::Any>>,
-    pub key: Option<ElementKey>,
+    pub(crate) create: Box<dyn FnOnce() -> ComponentBox>,
+}
+
+impl Element {
+    pub fn component<C: Component>(create: impl FnOnce() -> C + 'static) -> Self {
+        Self {
+            key: None,
+            kind: ElementKind::Component(ComponentElement {
+                type_id: TypeId::of::<C>(),
+                create: Box::new(move || ComponentBox::new(create())),
+            }),
+        }
+    }
+
+    pub fn component_with_key<C: Component>(
+        key: impl Into<String>,
+        create: impl FnOnce() -> C + 'static,
+    ) -> Self {
+        Self {
+            key: Some(ElementKey::Named(key.into())),
+            kind: ElementKind::Component(ComponentElement {
+                type_id: TypeId::of::<C>(),
+                create: Box::new(move || ComponentBox::new(create())),
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,6 +74,12 @@ pub enum WidgetType {
     TextInput,
     Checkbox,
     ScrollView,
+}
+
+impl WidgetType {
+    pub fn is_text_bearing(self) -> bool {
+        matches!(self, Self::Text | Self::Button | Self::TextInput)
+    }
 }
 
 #[derive(Clone, Debug, Default)]

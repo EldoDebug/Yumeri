@@ -48,6 +48,10 @@ impl<'a> UiContext<'a> {
         self.scene
     }
 
+    pub fn scene_and_glyph_cache(&mut self) -> (&mut Scene, Option<&mut GlyphCache>) {
+        (self.scene, self.glyph_cache.as_deref_mut())
+    }
+
     pub fn surface_size(&self) -> (u32, u32) {
         self.surface_size
     }

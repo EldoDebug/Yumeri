@@ -83,6 +83,24 @@ pub enum Dimension {
     Percent(f32),
 }
 
+impl From<f32> for Dimension {
+    fn from(v: f32) -> Self {
+        Dimension::Px(v)
+    }
+}
+
+impl From<i32> for Dimension {
+    fn from(v: i32) -> Self {
+        Dimension::Px(v as f32)
+    }
+}
+
+impl From<u32> for Dimension {
+    fn from(v: u32) -> Self {
+        Dimension::Px(v as f32)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Edges {
     pub top: f32,

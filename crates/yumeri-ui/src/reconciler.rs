@@ -1,8 +1,7 @@
-use std::any::TypeId;
-
 use crate::component::ComponentBox;
 use crate::element::{Element, ElementKey, ElementKind, WidgetType};
 use crate::event_ctx::EventCtx;
+use crate::style;
 use crate::tree::{UiNodeId, UiTree};
 use crate::view_ctx::ViewCtx;
 
@@ -90,17 +89,16 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                         .unwrap_or(false);
 
                     if type_matches {
-                        // Re-run view for existing component
                         rebuild_component(tree, old_id);
                         new_child_ids.push(old_id);
                     } else {
                         unmount_component(tree, old_id);
                         tree.remove_node(old_id);
-                        let new_id = mount_component(tree, parent, comp_elem.type_id, comp_elem.create);
+                        let new_id = mount_component(tree, parent, comp_elem.create);
                         new_child_ids.push(new_id);
                     }
                 } else {
-                    let new_id = mount_component(tree, parent, comp_elem.type_id, comp_elem.create);
+                    let new_id = mount_component(tree, parent, comp_elem.create);
                     new_child_ids.push(new_id);
                 }
             }
@@ -113,18 +111,19 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
         tree.remove_node(old_id);
     }
 
-    // Update parent's children list
+    // Update parent's children list and sync taffy
     match parent {
         Some(pid) => {
+            // Build taffy children from new_child_ids before moving it
+            let taffy_children: Vec<_> = new_child_ids
+                .iter()
+                .filter_map(|&id| tree.nodes.get(id).map(|n| n.taffy_node))
+                .collect();
+
             if let Some(parent_node) = tree.nodes.get_mut(pid) {
-                parent_node.children = new_child_ids.clone();
+                parent_node.children = new_child_ids;
             }
-            // Sync taffy children
             if let Some(parent_taffy) = tree.nodes.get(pid).map(|n| n.taffy_node) {
-                let taffy_children: Vec<_> = new_child_ids
-                    .iter()
-                    .filter_map(|&id| tree.nodes.get(id).map(|n| n.taffy_node))
-                    .collect();
                 tree.taffy
                     .set_children(parent_taffy, &taffy_children)
                     .expect("taffy set_children");
@@ -162,31 +161,72 @@ fn mount_widget(
     id
 }
 
-fn mount_component(
+/// Shared logic: insert a container node, store the component, call on_mount, run view, reconcile.
+fn init_component_node(
     tree: &mut UiTree,
+    comp_box: ComponentBox,
     parent: Option<UiNodeId>,
-    type_id: TypeId,
-    create: Box<dyn FnOnce() -> Box<dyn std::any::Any>>,
+    container_style: style::Style,
 ) -> UiNodeId {
-    let any_box = create();
+    let comp_type_id = comp_box.type_id();
 
-    // Create a wrapper node for the component
     let id = tree.insert_node(
         WidgetType::Container,
-        crate::style::Style::default(),
+        container_style,
         Default::default(),
         parent,
         false,
     );
 
-    // We need to build a ComponentBox from the Any. Since we only have Box<dyn Any>,
-    // we need to use the type_id to verify. The create closure already produces the right type.
-    // Unfortunately we can't use ComponentBox::new here because we don't have the concrete type.
-    // Instead, we store it differently: the ComponentElement should capture the component creation.
-    // For now, we handle this via a different approach in the widget builders.
-    let _ = (type_id, any_box);
+    if let Some(node) = tree.nodes.get_mut(id) {
+        node.component = Some(comp_box);
+    }
 
+    // Call on_mount
+    {
+        let mut ctx = EventCtx {
+            animator: &mut tree.animator,
+        };
+        if let Some(node) = tree.nodes.get_mut(id) {
+            if let Some(comp) = &mut node.component {
+                comp.on_mount(&mut ctx);
+            }
+        }
+    }
+
+    // Run initial view
+    let element = {
+        let node = match tree.nodes.get(id) {
+            Some(n) => n,
+            None => return id,
+        };
+        let comp = match &node.component {
+            Some(c) => c,
+            None => return id,
+        };
+        let mut ctx = ViewCtx::new(comp_type_id, &mut tree.animator);
+        comp.view(&mut ctx)
+    };
+
+    reconcile(tree, Some(id), vec![element]);
     id
+}
+
+fn mount_component(
+    tree: &mut UiTree,
+    parent: Option<UiNodeId>,
+    create: Box<dyn FnOnce() -> ComponentBox>,
+) -> UiNodeId {
+    init_component_node(
+        tree,
+        create(),
+        parent,
+        style::Style {
+            width: style::Dimension::Percent(1.0),
+            height: style::Dimension::Auto,
+            ..Default::default()
+        },
+    )
 }
 
 fn unmount_component(tree: &mut UiTree, id: UiNodeId) {
@@ -224,50 +264,19 @@ pub(crate) fn mount_root_component<C: crate::component::Component>(
     component: C,
 ) {
     let comp_box = ComponentBox::new(component);
-    let type_id = comp_box.type_id();
 
-    // Create root node
-    let id = tree.insert_node(
-        WidgetType::Container,
-        crate::style::Style {
-            width: crate::style::Dimension::Percent(1.0),
-            height: crate::style::Dimension::Percent(1.0),
+    let id = init_component_node(
+        tree,
+        comp_box,
+        None,
+        style::Style {
+            width: style::Dimension::Percent(1.0),
+            height: style::Dimension::Percent(1.0),
             ..Default::default()
         },
-        Default::default(),
-        None,
-        false,
     );
 
-    // Set as root
     tree.root = Some(id);
-
-    // Store component
-    if let Some(node) = tree.nodes.get_mut(id) {
-        node.component = Some(comp_box);
-    }
-
-    // Call on_mount
-    {
-        let mut ctx = EventCtx {
-            animator: &mut tree.animator,
-        };
-        if let Some(node) = tree.nodes.get_mut(id) {
-            if let Some(comp) = &mut node.component {
-                comp.on_mount(&mut ctx);
-            }
-        }
-    }
-
-    // Run initial view
-    let element = {
-        let node = tree.nodes.get(id).unwrap();
-        let comp = node.component.as_ref().unwrap();
-        let mut ctx = ViewCtx::new(type_id, &mut tree.animator);
-        comp.view(&mut ctx)
-    };
-
-    reconcile(tree, Some(id), vec![element]);
     tree.needs_rebuild = false;
     tree.needs_layout = true;
 }

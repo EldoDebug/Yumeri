@@ -42,6 +42,7 @@ pub struct UiTree {
     pub(crate) viewport_size: (f32, f32),
     pub(crate) cursor_pos: (f32, f32),
     pub(crate) hovered_node: Option<UiNodeId>,
+    pub(crate) pending_scene_removals: Vec<SceneNodeId>,
 }
 
 impl UiTree {
@@ -57,6 +58,7 @@ impl UiTree {
             viewport_size: (800.0, 600.0),
             cursor_pos: (0.0, 0.0),
             hovered_node: None,
+            pending_scene_removals: Vec::new(),
         }
     }
 
@@ -141,6 +143,11 @@ impl UiTree {
         if let Some(node) = self.nodes.remove(id) {
             let _ = self.taffy.remove(node.taffy_node);
 
+            // Queue scene node for removal so the renderer cleans it up
+            if let Some(scene_id) = node.scene_node {
+                self.pending_scene_removals.push(scene_id);
+            }
+
             if let Some(parent_id) = node.parent {
                 if let Some(parent) = self.nodes.get_mut(parent_id) {
                     parent.children.retain(|&c| c != id);
@@ -201,6 +208,20 @@ impl UiTree {
         }
 
         false
+    }
+
+    pub(crate) fn compute_absolute_position(&self, node_id: UiNodeId) -> Option<(f32, f32)> {
+        let mut x = 0.0;
+        let mut y = 0.0;
+        let mut current = Some(node_id);
+        while let Some(id) = current {
+            let node = self.nodes.get(id)?;
+            let layout = self.taffy.layout(node.taffy_node).ok()?;
+            x += layout.location.x;
+            y += layout.location.y;
+            current = node.parent;
+        }
+        Some((x, y))
     }
 
     fn find_owner_component(&self, start: UiNodeId) -> Option<UiNodeId> {

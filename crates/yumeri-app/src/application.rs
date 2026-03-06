@@ -257,8 +257,9 @@ impl ApplicationHandler for Runner {
             if matches!(event, WindowEvent::CloseRequested) {
                 let response = {
                     let entry = self.windows.get(&window_id).unwrap();
+                    let gc = render_state.as_mut().and_then(|rs| rs.glyph_cache_mut());
                     let mut ctx =
-                        WindowContext::new(&entry.window, &mut self.requests, ui_scene.as_mut());
+                        WindowContext::new(&entry.window, &mut self.requests, ui_scene.as_mut(), gc);
                     d.on_close_requested(&mut ctx)
                 };
                 if response == CloseResponse::Close {
@@ -307,8 +308,9 @@ impl ApplicationHandler for Runner {
 
                 // Delegate dispatch with shared context
                 let entry = self.windows.get(&window_id).unwrap();
+                let gc = render_state.as_mut().and_then(|rs| rs.glyph_cache_mut());
                 let mut ctx =
-                    WindowContext::new(&entry.window, &mut self.requests, ui_scene.as_mut());
+                    WindowContext::new(&entry.window, &mut self.requests, ui_scene.as_mut(), gc);
                 match event {
                     WindowEvent::RedrawRequested => d.on_redraw_requested(&mut ctx),
                     WindowEvent::Resized(size) => d.on_resized(&mut ctx, size),

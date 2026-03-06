@@ -47,23 +47,8 @@ fn hit_test_recursive(
 
 #[allow(dead_code)]
 pub(crate) fn get_node_bounds(tree: &UiTree, node_id: UiNodeId) -> Option<(f32, f32, f32, f32)> {
-    let (abs_x, abs_y) = compute_abs_pos(tree, node_id)?;
+    let (abs_x, abs_y) = tree.compute_absolute_position(node_id)?;
     let node = tree.nodes.get(node_id)?;
     let layout = tree.taffy.layout(node.taffy_node).ok()?;
     Some((abs_x, abs_y, layout.size.width, layout.size.height))
-}
-
-#[allow(dead_code)]
-fn compute_abs_pos(tree: &UiTree, node_id: UiNodeId) -> Option<(f32, f32)> {
-    let mut x = 0.0;
-    let mut y = 0.0;
-    let mut current = Some(node_id);
-    while let Some(id) = current {
-        let node = tree.nodes.get(id)?;
-        let layout = tree.taffy.layout(node.taffy_node).ok()?;
-        x += layout.location.x;
-        y += layout.location.y;
-        current = node.parent;
-    }
-    Some((x, y))
 }
