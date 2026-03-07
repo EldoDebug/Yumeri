@@ -1,12 +1,16 @@
 pub(crate) mod audio;
 pub(crate) mod cache;
 pub(crate) mod decode;
+pub(crate) mod effect;
+pub(crate) mod effects;
 pub(crate) mod error;
 pub(crate) mod player;
 pub(crate) mod sample_format;
 
 pub use audio::Audio;
 pub use cache::{AudioCache, AudioId, LoadStatus};
+pub use effect::{AudioEffect, EffectChain};
+pub use effects::{LowPass, LowPassHandle};
 pub use error::{AudioError, Result};
 pub use player::{AudioHandle, AudioPlayer, PlaybackState};
 pub use sample_format::SampleFormat;

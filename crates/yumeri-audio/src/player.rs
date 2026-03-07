@@ -5,6 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::audio::Audio;
 use crate::decode;
+use crate::effect::EffectChain;
 use crate::error::{AudioError, Result};
 use crate::sample_format::SampleFormat;
 
@@ -41,20 +42,7 @@ impl AudioPlayer {
     }
 
     pub fn play_with(&self, audio: &Audio, volume: f32, looping: bool) -> Result<AudioHandle> {
-        let (samples, src_channels, src_rate) = if audio.format() == SampleFormat::F32 {
-            (
-                decode::bytes_to_f32_samples(audio.data(), SampleFormat::F32),
-                audio.channels() as usize,
-                audio.sample_rate(),
-            )
-        } else {
-            let converted = audio.convert_to(SampleFormat::F32)?;
-            (
-                decode::bytes_to_f32_samples(converted.data(), SampleFormat::F32),
-                converted.channels() as usize,
-                converted.sample_rate(),
-            )
-        };
+        let (samples, src_channels, src_rate) = Self::decode_to_f32(audio)?;
         let samples = Arc::new(samples);
 
         let dst_channels = self.config.channels as usize;
@@ -177,6 +165,178 @@ impl AudioPlayer {
             }),
             Ok(Err(e)) => Err(AudioError::Playback(e)),
             Err(_) => Err(AudioError::Playback("audio thread exited unexpectedly".into())),
+        }
+    }
+
+    pub fn play_with_effects(
+        &self,
+        audio: &Audio,
+        volume: f32,
+        looping: bool,
+        effects: EffectChain,
+    ) -> Result<AudioHandle> {
+        let (samples, src_channels, src_rate) = Self::decode_to_f32(audio)?;
+        let samples = Arc::new(samples);
+
+        let dst_channels = self.config.channels as usize;
+        let dst_rate = self.config.sample_rate.0;
+        let total_src_frames = (samples.len() / src_channels) as u64;
+        let rate_ratio = src_rate as f64 / dst_rate as f64;
+
+        let state = Arc::new(SharedState {
+            cursor: AtomicU64::new(0),
+            volume: AtomicU32::new(volume.to_bits()),
+            playback: AtomicU8::new(PlaybackState::Playing as u8),
+            looping: AtomicU8::new(u8::from(looping)),
+            total_src_frames,
+            dst_rate,
+        });
+
+        let cb_samples = Arc::clone(&samples);
+        let cb_state = Arc::clone(&state);
+        let config = self.config.clone();
+        let (result_tx, result_rx) = mpsc::channel::<std::result::Result<(), String>>();
+        let (drop_tx, drop_rx) = mpsc::channel::<()>();
+
+        std::thread::spawn(move || {
+            let host = cpal::default_host();
+            let device = match host.default_output_device() {
+                Some(d) => d,
+                None => {
+                    let _ = result_tx.send(Err("no output device".into()));
+                    return;
+                }
+            };
+
+            let mut effects = effects;
+
+            let stream = match device.build_output_stream(
+                &config,
+                move |output: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let ps = cb_state.playback.load(Ordering::Relaxed);
+                    if ps != PlaybackState::Playing as u8 {
+                        output.fill(0.0);
+                        return;
+                    }
+
+                    let vol = f32::from_bits(cb_state.volume.load(Ordering::Relaxed));
+                    let is_looping = cb_state.looping.load(Ordering::Relaxed) != 0;
+                    let total = cb_state.total_src_frames;
+                    let mut cursor = cb_state.cursor.load(Ordering::Relaxed);
+
+                    // Phase 1: fill buffer with interpolated samples (volume=1.0)
+                    let mut looped = false;
+                    let mut stopped = false;
+
+                    for frame in output.chunks_mut(dst_channels) {
+                        if stopped {
+                            frame.fill(0.0);
+                            continue;
+                        }
+
+                        let src_pos = cursor as f64 * rate_ratio;
+                        let src_frame = src_pos as u64;
+
+                        if src_frame >= total {
+                            if is_looping {
+                                cursor = 0;
+                                looped = true;
+                                let idx_b = 1.min(total.saturating_sub(1) as usize);
+                                fill_frame_lerp(
+                                    frame,
+                                    &cb_samples,
+                                    0,
+                                    idx_b,
+                                    0.0,
+                                    src_channels,
+                                    1.0,
+                                );
+                            } else {
+                                frame.fill(0.0);
+                                stopped = true;
+                                continue;
+                            }
+                        } else {
+                            let idx_a = src_frame as usize;
+                            let idx_b = (idx_a + 1).min(total.saturating_sub(1) as usize);
+                            let frac = (src_pos - src_pos.floor()) as f32;
+                            fill_frame_lerp(
+                                frame,
+                                &cb_samples,
+                                idx_a,
+                                idx_b,
+                                frac,
+                                src_channels,
+                                1.0,
+                            );
+                        }
+
+                        cursor += 1;
+                    }
+
+                    // Phase 2: apply effects (reset on loop to prevent click noise)
+                    if looped {
+                        effects.reset();
+                    }
+                    effects.process(output, dst_channels, dst_rate);
+
+                    // Phase 3: apply volume
+                    if vol != 1.0 {
+                        for s in output.iter_mut() {
+                            *s *= vol;
+                        }
+                    }
+
+                    cb_state.cursor.store(cursor, Ordering::Relaxed);
+                    if stopped {
+                        cb_state
+                            .playback
+                            .store(PlaybackState::Stopped as u8, Ordering::Relaxed);
+                    }
+                },
+                |err| log::error!("audio stream error: {err}"),
+                None,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = result_tx.send(Err(e.to_string()));
+                    return;
+                }
+            };
+
+            if let Err(e) = stream.play() {
+                let _ = result_tx.send(Err(e.to_string()));
+                return;
+            }
+
+            let _ = result_tx.send(Ok(()));
+            let _ = drop_rx.recv();
+        });
+
+        match result_rx.recv() {
+            Ok(Ok(())) => Ok(AudioHandle {
+                state,
+                _drop_guard: Arc::new(drop_tx),
+            }),
+            Ok(Err(e)) => Err(AudioError::Playback(e)),
+            Err(_) => Err(AudioError::Playback("audio thread exited unexpectedly".into())),
+        }
+    }
+
+    fn decode_to_f32(audio: &Audio) -> Result<(Vec<f32>, usize, u32)> {
+        if audio.format() == SampleFormat::F32 {
+            Ok((
+                decode::bytes_to_f32_samples(audio.data(), SampleFormat::F32),
+                audio.channels() as usize,
+                audio.sample_rate(),
+            ))
+        } else {
+            let converted = audio.convert_to(SampleFormat::F32)?;
+            Ok((
+                decode::bytes_to_f32_samples(converted.data(), SampleFormat::F32),
+                converted.channels() as usize,
+                converted.sample_rate(),
+            ))
         }
     }
 }
