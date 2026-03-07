@@ -347,6 +347,7 @@ impl ApplicationHandler for Runner {
                                 |ctx| {
                                     d.on_render2d(ctx);
                                 },
+                                None,
                                 ui_scene.as_mut(),
                             );
                             if let Err(e) = result {

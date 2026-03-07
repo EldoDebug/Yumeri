@@ -4,8 +4,10 @@ mod builder;
 mod compiler;
 mod executor;
 
-pub(crate) use resource::ResourceId;
-pub(crate) use pass::RenderPassContext;
-pub(crate) use builder::RenderGraphBuilder;
+pub use resource::ResourceId;
+pub use pass::RenderPassContext;
+pub use builder::RenderGraphBuilder;
+#[allow(unused_imports)]
+pub use builder::PassBuilder;
 pub(crate) use compiler::CompiledGraph;
 pub(crate) use executor::GraphExecutor;

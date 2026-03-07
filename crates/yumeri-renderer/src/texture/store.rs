@@ -464,7 +464,7 @@ impl TextureStore {
     }
 }
 
-fn upload_image_to_gpu(gpu: &GpuContext, width: u32, height: u32, data: &[u8]) -> Result<Image> {
+pub(crate) fn upload_image_to_gpu(gpu: &GpuContext, width: u32, height: u32, data: &[u8]) -> Result<Image> {
     let byte_size = (width * height * 4) as u64;
 
     let mut staging = Buffer::new(

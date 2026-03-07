@@ -7,7 +7,7 @@ use crate::frame::FrameSynchronizer;
 use crate::gpu::surface::Surface;
 use crate::gpu::swapchain::{Swapchain, SwapchainConfig};
 use crate::gpu::GpuContext;
-use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder};
+use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder, ResourceId};
 use crate::renderer::renderer2d::Renderer2D;
 use crate::texture::glyph_cache::GlyphCache;
 use crate::texture::store::TextureStore;
@@ -90,6 +90,7 @@ impl WindowRenderState {
         &mut self,
         gpu: &GpuContext,
         on_render2d: impl FnOnce(&mut RenderContext2D),
+        on_custom: Option<&mut dyn FnMut(&mut RenderGraphBuilder, ResourceId)>,
         ui_scene: Option<&mut Scene>,
     ) -> Result<()> {
         let extent = self.swapchain.extent();
@@ -160,6 +161,11 @@ impl WindowRenderState {
             ui_r.sync_and_register(scene, store, &mut builder, backbuffer, frame_index);
         }
 
+        // Custom pass (e.g. Live2D, drawn between UI and 2D overlay)
+        if let Some(on_custom) = on_custom {
+            on_custom(&mut builder, backbuffer);
+        }
+
         // 2D overlay pass (drawn on top)
         if let (Some(r2d), Some(store)) = (&mut self.renderer2d, &self.texture_store) {
             r2d.register_passes_with_textures(store, &mut builder, backbuffer, frame_index);
@@ -201,6 +207,15 @@ impl WindowRenderState {
             }
             _ => crate::ui::UiContext::new(scene, surface_size),
         }
+    }
+
+    pub fn swapchain_format(&self) -> vk::Format {
+        self.swapchain.format().format
+    }
+
+    pub fn swapchain_extent(&self) -> (u32, u32) {
+        let e = self.swapchain.extent();
+        (e.width, e.height)
     }
 
     pub fn glyph_cache_mut(&mut self) -> Option<&mut GlyphCache> {

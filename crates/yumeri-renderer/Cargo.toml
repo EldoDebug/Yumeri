@@ -3,11 +3,16 @@ name = "yumeri-renderer"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+live2d = ["dep:yumeri-live2d", "dep:glam"]
+
 [dependencies]
 ash = { version = "0.38.0", default-features = false, features = ["std", "debug", "loaded"] }
 ash-window = "0.13.0"
 bitflags = "2.11.0"
 bytemuck = "1"
+glam = { version = "0.29", optional = true }
 gpu-allocator = { version = "0.28.0", features = ["vulkan"] }
 log = "0.4"
 raw-window-handle = "0.6.2"
@@ -15,6 +20,7 @@ slotmap = "1.1.1"
 thiserror = "2"
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-image = { version = "0.1.0", path = "../yumeri-image" }
+yumeri-live2d = { version = "0.1.0", path = "../yumeri-live2d", optional = true }
 yumeri-types = { version = "0.1.0", path = "../yumeri-types" }
 yumeri-video = { version = "0.1.0", path = "../yumeri-video" }
 

@@ -3,12 +3,12 @@ use ash::vk;
 use crate::error::Result;
 
 #[derive(Clone, Copy, Default)]
-#[allow(dead_code)]
 pub(crate) enum BlendMode {
     #[default]
     Alpha,
     Additive,
     Opaque,
+    Multiply,
 }
 
 impl BlendMode {
@@ -34,6 +34,15 @@ impl BlendMode {
                 .color_write_mask(vk::ColorComponentFlags::RGBA),
             BlendMode::Opaque => vk::PipelineColorBlendAttachmentState::default()
                 .blend_enable(false)
+                .color_write_mask(vk::ColorComponentFlags::RGBA),
+            BlendMode::Multiply => vk::PipelineColorBlendAttachmentState::default()
+                .blend_enable(true)
+                .src_color_blend_factor(vk::BlendFactor::DST_COLOR)
+                .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .color_blend_op(vk::BlendOp::ADD)
+                .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .alpha_blend_op(vk::BlendOp::ADD)
                 .color_write_mask(vk::ColorComponentFlags::RGBA),
         }
     }
@@ -76,10 +85,13 @@ pub(crate) struct PipelineBuilder<'a> {
     fragment_spv: &'a [u8],
     topology: vk::PrimitiveTopology,
     blend_mode: BlendMode,
+    custom_blend: Option<vk::PipelineColorBlendAttachmentState>,
     cull_mode: vk::CullModeFlags,
     push_constant_ranges: Vec<vk::PushConstantRange>,
     descriptor_bindings: Vec<Vec<vk::DescriptorSetLayoutBinding<'a>>>,
     external_set_layouts: Vec<vk::DescriptorSetLayout>,
+    vertex_bindings: Vec<vk::VertexInputBindingDescription>,
+    vertex_attributes: Vec<vk::VertexInputAttributeDescription>,
 }
 
 impl<'a> PipelineBuilder<'a> {
@@ -96,28 +108,43 @@ impl<'a> PipelineBuilder<'a> {
             fragment_spv,
             topology: vk::PrimitiveTopology::TRIANGLE_STRIP,
             blend_mode: BlendMode::default(),
+            custom_blend: None,
             cull_mode: vk::CullModeFlags::NONE,
             push_constant_ranges: Vec::new(),
             descriptor_bindings: Vec::new(),
             external_set_layouts: Vec::new(),
+            vertex_bindings: Vec::new(),
+            vertex_attributes: Vec::new(),
         }
     }
 
-    #[allow(dead_code)]
     pub fn topology(mut self, topology: vk::PrimitiveTopology) -> Self {
         self.topology = topology;
         self
     }
 
-    #[allow(dead_code)]
     pub fn blend_mode(mut self, mode: BlendMode) -> Self {
         self.blend_mode = mode;
         self
     }
 
-    #[allow(dead_code)]
+    pub fn custom_blend(mut self, attachment: vk::PipelineColorBlendAttachmentState) -> Self {
+        self.custom_blend = Some(attachment);
+        self
+    }
+
     pub fn cull_mode(mut self, mode: vk::CullModeFlags) -> Self {
         self.cull_mode = mode;
+        self
+    }
+
+    pub fn vertex_input(
+        mut self,
+        bindings: Vec<vk::VertexInputBindingDescription>,
+        attributes: Vec<vk::VertexInputAttributeDescription>,
+    ) -> Self {
+        self.vertex_bindings = bindings;
+        self.vertex_attributes = attributes;
         self
     }
 
@@ -223,7 +250,13 @@ impl<'a> PipelineBuilder<'a> {
             }
         };
 
-        let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
+        let vertex_input = if self.vertex_bindings.is_empty() {
+            vk::PipelineVertexInputStateCreateInfo::default()
+        } else {
+            vk::PipelineVertexInputStateCreateInfo::default()
+                .vertex_binding_descriptions(&self.vertex_bindings)
+                .vertex_attribute_descriptions(&self.vertex_attributes)
+        };
 
         let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(self.topology);
@@ -241,7 +274,9 @@ impl<'a> PipelineBuilder<'a> {
         let multisample = vk::PipelineMultisampleStateCreateInfo::default()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
 
-        let blend_attachment = self.blend_mode.to_blend_attachment();
+        let blend_attachment = self
+            .custom_blend
+            .unwrap_or_else(|| self.blend_mode.to_blend_attachment());
         let color_blend = vk::PipelineColorBlendStateCreateInfo::default()
             .attachments(std::slice::from_ref(&blend_attachment));
 

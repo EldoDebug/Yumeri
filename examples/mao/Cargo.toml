@@ -1,0 +1,12 @@
+[package]
+name = "mao-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+log = "0.4"
+env_logger = "0.11"
+winit = "0.30"
+yumeri-live2d = { path = "../../crates/yumeri-live2d" }
+yumeri-renderer = { path = "../../crates/yumeri-renderer", features = ["live2d"] }

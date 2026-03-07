@@ -50,7 +50,7 @@ pub fn render_frame(state: &mut CompositorState) {
                 }
             }
         }
-    }, None);
+    }, None, None);
 
     if let Err(e) = result {
         log::error!("render_frame upload pass failed: {e}");
@@ -103,7 +103,7 @@ pub fn render_frame(state: &mut CompositorState) {
                 texture: tex,
             });
         }
-    }, None);
+    }, None, None);
 
     if let Err(e) = result {
         log::error!("render_frame draw pass failed: {e}");

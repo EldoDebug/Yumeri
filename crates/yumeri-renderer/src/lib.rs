@@ -9,6 +9,9 @@ pub mod text;
 pub mod ui;
 pub mod video;
 
+#[cfg(feature = "live2d")]
+pub mod live2d;
+
 mod context;
 mod render_state;
 
@@ -16,6 +19,7 @@ pub use context::RenderContext2D;
 pub use error::RendererError;
 pub use gpu::GpuContext;
 pub use gpu::swapchain::{PreferredPresentMode, SwapchainConfig};
+pub use graph::{RenderGraphBuilder, ResourceId};
 pub use render_state::WindowRenderState;
 pub use renderer::renderer2d::{Circle, Rect, RoundedRect};
 pub use text::TextStyle;
