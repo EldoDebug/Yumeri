@@ -1,6 +1,8 @@
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::window::{WindowId, WindowLevel};
+use yumeri_renderer::postfx::{PostEffect, PostEffectChain};
 use yumeri_renderer::texture::glyph_cache::GlyphCache;
+use yumeri_renderer::GpuContext;
 
 use crate::application::AppRequest;
 use crate::delegate::WindowDelegate;
@@ -252,7 +254,8 @@ pub struct WindowContext<'a> {
     window: &'a Window,
     requests: &'a mut Vec<AppRequest>,
     ui_scene: Option<&'a mut yumeri_renderer::ui::Scene>,
-    glyph_cache: Option<&'a mut GlyphCache>,
+    render_state: Option<&'a mut yumeri_renderer::WindowRenderState>,
+    gpu: Option<&'a GpuContext>,
 }
 
 impl<'a> WindowContext<'a> {
@@ -260,13 +263,15 @@ impl<'a> WindowContext<'a> {
         window: &'a Window,
         requests: &'a mut Vec<AppRequest>,
         ui_scene: Option<&'a mut yumeri_renderer::ui::Scene>,
-        glyph_cache: Option<&'a mut GlyphCache>,
+        render_state: Option<&'a mut yumeri_renderer::WindowRenderState>,
+        gpu: Option<&'a GpuContext>,
     ) -> Self {
         Self {
             window,
             requests,
             ui_scene,
-            glyph_cache,
+            render_state,
+            gpu,
         }
     }
 
@@ -287,13 +292,67 @@ impl<'a> WindowContext<'a> {
     }
 
     pub fn glyph_cache(&mut self) -> Option<&mut GlyphCache> {
-        self.glyph_cache.as_deref_mut()
+        self.render_state.as_mut()?.glyph_cache_mut()
     }
 
     pub fn ui_scene_and_glyph_cache(
         &mut self,
     ) -> (Option<&mut yumeri_renderer::ui::Scene>, Option<&mut GlyphCache>) {
-        (self.ui_scene.as_deref_mut(), self.glyph_cache.as_deref_mut())
+        let gc = self.render_state.as_mut().and_then(|rs| rs.glyph_cache_mut());
+        (self.ui_scene.as_deref_mut(), gc)
+    }
+
+    fn require_gpu_and_render_state(
+        &mut self,
+    ) -> std::result::Result<
+        (&GpuContext, &mut yumeri_renderer::WindowRenderState),
+        yumeri_renderer::RendererError,
+    > {
+        let gpu = self.gpu.ok_or(yumeri_renderer::RendererError::NotInitialized(
+            "no GPU context".into(),
+        ))?;
+        let rs = self.render_state.as_mut().ok_or(
+            yumeri_renderer::RendererError::NotInitialized("no render state".into()),
+        )?;
+        Ok((gpu, rs))
+    }
+
+    pub fn add_post_effect(
+        &mut self,
+        effect: Box<dyn PostEffect>,
+    ) -> std::result::Result<(), yumeri_renderer::RendererError> {
+        let (gpu, rs) = self.require_gpu_and_render_state()?;
+        rs.add_post_effect(gpu, effect)
+    }
+
+    pub fn remove_post_effect(&mut self, name: &str) {
+        if let Some(rs) = &mut self.render_state {
+            rs.remove_post_effect(name);
+        }
+    }
+
+    pub fn set_post_effect_mask_from_data(
+        &mut self,
+        width: u32,
+        height: u32,
+        data: &[u8],
+    ) -> std::result::Result<(), yumeri_renderer::RendererError> {
+        let (gpu, rs) = self.require_gpu_and_render_state()?;
+        rs.set_post_effect_mask_from_data(gpu, width, height, data)
+    }
+
+    pub fn clear_post_effect_mask(&mut self) {
+        if let Some(rs) = &mut self.render_state {
+            rs.clear_post_effect_mask();
+        }
+    }
+
+    pub fn post_effect_chain(&self) -> Option<&PostEffectChain> {
+        self.render_state.as_ref()?.post_effect_chain()
+    }
+
+    pub fn post_effect_chain_mut(&mut self) -> Option<&mut PostEffectChain> {
+        self.render_state.as_mut()?.post_effect_chain_mut()
     }
 
     pub fn create_window(&mut self, builder: WindowBuilder) {

@@ -26,6 +26,12 @@ pub enum RendererError {
     #[error("texture error: {0}")]
     Texture(String),
 
+    #[error("not initialized: {0}")]
+    NotInitialized(String),
+
+    #[error("post-effect error: {0}")]
+    PostEffect(String),
+
     #[error("window handle error: {0:?}")]
     WindowHandle(raw_window_handle::HandleError),
 }

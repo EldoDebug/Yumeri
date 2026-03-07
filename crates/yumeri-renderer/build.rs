@@ -17,6 +17,7 @@ fn main() {
         ("sdf_2d.vert", shaderc::ShaderKind::Vertex),
         ("sdf_2d.frag", shaderc::ShaderKind::Fragment),
         ("yuv_to_rgb.comp", shaderc::ShaderKind::Compute),
+        ("postfx/grayscale.comp", shaderc::ShaderKind::Compute),
     ];
 
     compile_shaders(&compiler, &options, shader_dir, &out_dir, &shaders);

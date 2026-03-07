@@ -14,6 +14,7 @@ impl GraphExecutor {
         swapchain_image_view: vk::ImageView,
         extent: vk::Extent2D,
         clear_color: [f32; 4],
+        skip_present_transition: bool,
     ) {
         unsafe {
             // UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
@@ -78,26 +79,28 @@ impl GraphExecutor {
                 device.cmd_end_rendering(command_buffer);
             }
 
-            // COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
-            let present_barrier = vk::ImageMemoryBarrier2::default()
-                .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
-                .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
-                .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
-                .dst_access_mask(vk::AccessFlags2::NONE)
-                .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-                .image(swapchain_image)
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                });
+            if !skip_present_transition {
+                // COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
+                let present_barrier = vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                    .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
+                    .dst_access_mask(vk::AccessFlags2::NONE)
+                    .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+                    .image(swapchain_image)
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    });
 
-            let dependency_info = vk::DependencyInfo::default()
-                .image_memory_barriers(std::slice::from_ref(&present_barrier));
-            device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+                let dependency_info = vk::DependencyInfo::default()
+                    .image_memory_barriers(std::slice::from_ref(&present_barrier));
+                device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+            }
         }
     }
 }

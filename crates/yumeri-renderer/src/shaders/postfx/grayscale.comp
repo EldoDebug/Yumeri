@@ -1,0 +1,32 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform sampler2D input_image;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D output_image;
+layout(set = 0, binding = 2) uniform sampler2D mask_image;
+
+layout(push_constant) uniform PushConstants {
+    float intensity;
+    uint mask_enabled;
+};
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(output_image);
+    if (pos.x >= size.x || pos.y >= size.y) return;
+
+    vec2 uv = (vec2(pos) + 0.5) / vec2(size);
+    vec4 color = texture(input_image, uv);
+
+    // ITU-R BT.709
+    float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+    vec3 gray = vec3(luma);
+
+    float mask = 1.0;
+    if (mask_enabled != 0) {
+        mask = texture(mask_image, uv).r;
+    }
+
+    vec3 result = mix(color.rgb, gray, intensity * mask);
+    imageStore(output_image, pos, vec4(result, color.a));
+}

@@ -2,6 +2,7 @@ pub(crate) mod error;
 pub(crate) mod frame;
 pub(crate) mod gpu;
 pub(crate) mod graph;
+pub mod postfx;
 pub(crate) mod renderer;
 pub(crate) mod resource;
 pub mod texture;
@@ -17,6 +18,7 @@ mod render_state;
 
 pub use context::RenderContext2D;
 pub use error::RendererError;
+pub use postfx::{Grayscale, PostEffect, PostEffectChain};
 pub use gpu::GpuContext;
 pub use gpu::swapchain::{PreferredPresentMode, SwapchainConfig};
 pub use graph::{RenderGraphBuilder, ResourceId};

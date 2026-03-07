@@ -8,6 +8,7 @@ use crate::gpu::surface::Surface;
 use crate::gpu::swapchain::{Swapchain, SwapchainConfig};
 use crate::gpu::GpuContext;
 use crate::graph::{CompiledGraph, GraphExecutor, RenderGraphBuilder, ResourceId};
+use crate::postfx::{PostEffect, PostEffectChain};
 use crate::renderer::renderer2d::Renderer2D;
 use crate::texture::glyph_cache::GlyphCache;
 use crate::texture::store::TextureStore;
@@ -25,6 +26,7 @@ pub struct WindowRenderState {
     texture_store: Option<TextureStore>,
     glyph_cache: Option<GlyphCache>,
     video_textures: Vec<VideoTexture>,
+    postfx_chain: Option<PostEffectChain>,
 }
 
 impl WindowRenderState {
@@ -83,6 +85,7 @@ impl WindowRenderState {
             texture_store,
             glyph_cache,
             video_textures: Vec::new(),
+            postfx_chain: None,
         })
     }
 
@@ -176,6 +179,11 @@ impl WindowRenderState {
 
         let clear_alpha = if self.swapchain_config.transparent { 0.0 } else { 1.0 };
         let img_idx = frame.swapchain_image_index as usize;
+        let has_postfx = self
+            .postfx_chain
+            .as_ref()
+            .is_some_and(|c| !c.is_empty());
+
         GraphExecutor::execute(
             gpu.ash_device(),
             frame.command_buffer,
@@ -184,7 +192,18 @@ impl WindowRenderState {
             self.swapchain.image_views()[img_idx],
             extent,
             [0.0, 0.0, 0.0, clear_alpha],
+            has_postfx,
         );
+
+        if let Some(chain) = &mut self.postfx_chain {
+            chain.apply(
+                gpu,
+                frame.command_buffer,
+                self.swapchain.images()[img_idx],
+                extent,
+                frame_index,
+            )?;
+        }
 
         let needs_recreate = self.frame_sync.end_frame(gpu, &self.swapchain, &frame)?;
         if needs_recreate {
@@ -230,9 +249,63 @@ impl WindowRenderState {
         Ok(())
     }
 
+    fn ensure_postfx_chain(&mut self, gpu: &GpuContext) -> Result<&mut PostEffectChain> {
+        if self.postfx_chain.is_none() {
+            self.postfx_chain = Some(PostEffectChain::new(gpu)?);
+        }
+        Ok(self.postfx_chain.as_mut().unwrap())
+    }
+
+    pub fn add_post_effect(
+        &mut self,
+        gpu: &GpuContext,
+        effect: Box<dyn PostEffect>,
+    ) -> Result<()> {
+        self.ensure_postfx_chain(gpu)?.add(gpu, effect)
+    }
+
+    pub fn remove_post_effect(&mut self, name: &str) {
+        if let Some(chain) = &mut self.postfx_chain {
+            chain.remove(name);
+        }
+    }
+
+    pub fn set_post_effect_mask(&mut self, mask_view: vk::ImageView) {
+        if let Some(chain) = &mut self.postfx_chain {
+            chain.set_mask(mask_view);
+        }
+    }
+
+    pub fn set_post_effect_mask_from_data(
+        &mut self,
+        gpu: &GpuContext,
+        width: u32,
+        height: u32,
+        data: &[u8],
+    ) -> Result<()> {
+        self.ensure_postfx_chain(gpu)?.set_mask_from_data(gpu, width, height, data)
+    }
+
+    pub fn clear_post_effect_mask(&mut self) {
+        if let Some(chain) = &mut self.postfx_chain {
+            chain.clear_mask();
+        }
+    }
+
+    pub fn post_effect_chain(&self) -> Option<&PostEffectChain> {
+        self.postfx_chain.as_ref()
+    }
+
+    pub fn post_effect_chain_mut(&mut self) -> Option<&mut PostEffectChain> {
+        self.postfx_chain.as_mut()
+    }
+
     pub fn destroy(&mut self, gpu: &GpuContext) {
         unsafe {
             let _ = gpu.ash_device().device_wait_idle();
+        }
+        if let Some(chain) = &mut self.postfx_chain {
+            chain.destroy(gpu);
         }
         if let Some(r2d) = &mut self.renderer2d {
             r2d.destroy(gpu);

@@ -327,7 +327,7 @@ fn destroy_layouts(device: &ash::Device, layouts: &[vk::DescriptorSetLayout]) {
     }
 }
 
-fn create_shader_module(device: &ash::Device, spv: &[u8]) -> Result<vk::ShaderModule> {
+pub(crate) fn create_shader_module(device: &ash::Device, spv: &[u8]) -> Result<vk::ShaderModule> {
     assert!(spv.len() % 4 == 0, "SPIR-V byte length must be a multiple of 4");
     let code: Vec<u32> = spv
         .chunks_exact(4)
