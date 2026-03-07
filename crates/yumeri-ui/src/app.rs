@@ -10,6 +10,7 @@ use crate::event::hit_test::hit_test;
 use crate::event::propagation::dispatch_event;
 use crate::reconciler::{mount_root_component, rebuild_component};
 use crate::renderer_bridge::sync_to_scene;
+use crate::template_provider::TemplateProvider;
 use crate::tree::UiTree;
 
 pub struct UiApp<C: Component> {
@@ -58,8 +59,14 @@ impl<C: Component> UiApp<C> {
         self.last_frame = Some(now);
 
         // Update animations
+        let had_active = self.tree.animator.has_active();
         self.tree.animator.update(dt);
         self.tree.animator.gc();
+
+        // Force rebuild when animations are running so view() can read new values
+        if had_active {
+            self.tree.needs_rebuild = true;
+        }
 
         // Rebuild dirty components
         if self.tree.needs_rebuild {
@@ -168,5 +175,9 @@ impl<C: Component> UiApp<C> {
 
     pub fn tree_mut(&mut self) -> &mut UiTree {
         &mut self.tree
+    }
+
+    pub fn set_template_provider(&mut self, provider: impl TemplateProvider + 'static) {
+        self.tree.set_template_provider(provider);
     }
 }

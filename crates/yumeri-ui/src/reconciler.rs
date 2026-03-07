@@ -204,7 +204,8 @@ fn init_component_node(
             Some(c) => c,
             None => return id,
         };
-        let mut ctx = ViewCtx::new(comp_type_id, &mut tree.animator);
+        let mut ctx = ViewCtx::new(comp_type_id, &mut tree.animator)
+            .with_template_provider_ptr(tree.template_provider_ptr());
         comp.view(&mut ctx)
     };
 
@@ -252,7 +253,8 @@ pub(crate) fn rebuild_component(tree: &mut UiTree, id: UiNodeId) {
         };
 
         let type_id = comp.type_id();
-        let mut ctx = ViewCtx::new(type_id, &mut tree.animator);
+        let mut ctx = ViewCtx::new(type_id, &mut tree.animator)
+            .with_template_provider_ptr(tree.template_provider_ptr());
         comp.view(&mut ctx)
     };
 

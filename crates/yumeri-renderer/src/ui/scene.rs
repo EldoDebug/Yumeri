@@ -155,6 +155,39 @@ impl Scene {
         }
     }
 
+    pub fn set_translate(&mut self, id: NodeId, translate: [f32; 2]) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.translate != translate
+        {
+            node.translate = translate;
+            node.dirty |= DirtyFlags::TRANSFORM;
+            self.track_dirty(id);
+            self.propagate_transform_dirty(id);
+        }
+    }
+
+    /// Scale is applied per-node at the GPU level and does not propagate to children.
+    pub fn set_scale(&mut self, id: NodeId, scale: [f32; 2]) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.scale != scale
+        {
+            node.scale = scale;
+            node.dirty |= DirtyFlags::VISUAL;
+            self.track_dirty(id);
+        }
+    }
+
+    /// Rotation is applied per-node at the GPU level and does not propagate to children.
+    pub fn set_rotation(&mut self, id: NodeId, rotation: f32) {
+        if let Some(node) = self.nodes.get_mut(id)
+            && node.rotation != rotation
+        {
+            node.rotation = rotation;
+            node.dirty |= DirtyFlags::VISUAL;
+            self.track_dirty(id);
+        }
+    }
+
     pub fn set_text(
         &mut self,
         id: NodeId,
@@ -261,8 +294,8 @@ impl Scene {
                 continue;
             };
             node.world_position = [
-                parent_pos[0] + node.position[0],
-                parent_pos[1] + node.position[1],
+                parent_pos[0] + node.position[0] + node.translate[0],
+                parent_pos[1] + node.position[1] + node.translate[1],
             ];
             let wp = node.world_position;
             let children = &node.children;
@@ -287,8 +320,8 @@ impl Scene {
                 continue;
             };
             node.world_position = [
-                parent_pos[0] + node.position[0],
-                parent_pos[1] + node.position[1],
+                parent_pos[0] + node.position[0] + node.translate[0],
+                parent_pos[1] + node.position[1] + node.translate[1],
             ];
             let wp = node.world_position;
             let children = &node.children;
@@ -334,7 +367,9 @@ impl Scene {
         }
 
         // Only TRANSFORM and/or VISUAL changes -- use tracked dirty_nodes
-        let dirty_nodes = std::mem::take(&mut self.dirty_nodes);
+        let mut dirty_nodes = std::mem::take(&mut self.dirty_nodes);
+        dirty_nodes.sort_unstable();
+        dirty_nodes.dedup();
 
         // Recompute world positions only for subtree roots (parent not TRANSFORM-dirty).
         // Safety: propagate_transform_dirty adds ALL descendants to dirty_nodes,

@@ -32,6 +32,14 @@ pub struct Style {
     pub opacity: f32,
     pub visible: bool,
 
+    // Transform
+    pub translate: [f32; 2],
+    pub scale: [f32; 2],
+    pub rotation: f32,
+    /// Pivot point for rotation/scale (0.0–1.0, relative to element size).
+    /// Currently reserved — the renderer always uses center origin [0.5, 0.5].
+    pub transform_origin: [f32; 2],
+
     // Transitions
     pub transitions: Vec<TransitionDef>,
 }
@@ -64,6 +72,11 @@ impl Default for Style {
             corner_radius: 0.0,
             opacity: 1.0,
             visible: true,
+
+            translate: [0.0, 0.0],
+            scale: [1.0, 1.0],
+            rotation: 0.0,
+            transform_origin: [0.5, 0.5],
 
             transitions: Vec::new(),
         }

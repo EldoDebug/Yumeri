@@ -271,6 +271,17 @@ impl Animator {
         }
     }
 
+    /// Returns true if any animations or timelines are currently playing.
+    pub fn has_active(&self) -> bool {
+        self.animations
+            .values()
+            .any(|e| !e.timeline_owned && e.anim.playback_state() == PlaybackState::Playing)
+            || self
+                .timelines
+                .values()
+                .any(|s| s.playback == PlaybackState::Playing)
+    }
+
     /// Drain all pending events.
     pub fn drain_events(&mut self) -> impl Iterator<Item = AnimationEvent> + '_ {
         self.events.drain(..)

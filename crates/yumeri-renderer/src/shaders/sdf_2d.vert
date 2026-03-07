@@ -1,9 +1,10 @@
 #version 450
 
 layout(set = 0, binding = 0) readonly buffer ShapeBuffer {
-    // Each instance: 16 floats
+    // Each instance: 20 floats
     // position(2) + size(2) + corner_radius(1) + shape_type(1) + color(4)
-    // + texture_index(1) + uv_min(2) + uv_max(2) + padding(1)
+    // + texture_index(1) + uv_min(2) + uv_max(2)
+    // + cos_r(1) + sin_r(1) + scale_x(1) + scale_y(1) + padding(1)
     float data[];
 } shapes;
 
@@ -23,8 +24,8 @@ void main() {
     int instance = gl_InstanceIndex;
     int vertex = gl_VertexIndex;
 
-    // Read instance data (16 floats per instance)
-    int base = instance * 16;
+    // Read instance data (20 floats per instance)
+    int base = instance * 20;
     vec2 position = vec2(shapes.data[base + 0], shapes.data[base + 1]);
     vec2 size = vec2(shapes.data[base + 2], shapes.data[base + 3]);
     float corner_radius = shapes.data[base + 4];
@@ -33,6 +34,10 @@ void main() {
     float texture_index = shapes.data[base + 10];
     vec2 uv_min = vec2(shapes.data[base + 11], shapes.data[base + 12]);
     vec2 uv_max = vec2(shapes.data[base + 13], shapes.data[base + 14]);
+    float cos_r = shapes.data[base + 15];
+    float sin_r = shapes.data[base + 16];
+    float scale_x = shapes.data[base + 17];
+    float scale_y = shapes.data[base + 18];
 
     // Generate quad vertices (triangle strip: 4 vertices)
     // Vertex order: 0=BL, 1=BR, 2=TL, 3=TR
@@ -47,8 +52,15 @@ void main() {
         vec2( 1.0,  1.0)
     );
 
+    // Local position in shape space (pre-transform, used for SDF)
     vec2 local = offsets[vertex] * half_size;
-    vec2 world_pos = position + local;
+
+    // Apply scale and rotation for screen placement
+    vec2 scaled = vec2(local.x * scale_x, local.y * scale_y);
+    vec2 rotated = vec2(scaled.x * cos_r - scaled.y * sin_r,
+                        scaled.x * sin_r + scaled.y * cos_r);
+
+    vec2 world_pos = position + rotated;
 
     // Convert pixel coordinates to NDC: (0,0) top-left, (w,h) bottom-right -> (-1,-1) to (1,1)
     vec2 ndc = (world_pos / pc.viewport_size) * 2.0 - 1.0;

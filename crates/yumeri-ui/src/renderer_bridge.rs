@@ -142,6 +142,10 @@ struct NodeVisualInfo {
     w: f32,
     h: f32,
     z_index: i32,
+    // Transform
+    translate: [f32; 2],
+    scale: [f32; 2],
+    rotation: f32,
     // Text-related (only meaningful for text-bearing widgets)
     text: Option<String>,
     text_color: Option<Color>,
@@ -181,6 +185,9 @@ fn sync_node_recursive(
             w: layout.size.width,
             h: layout.size.height,
             z_index,
+            translate: node.style.translate,
+            scale: node.style.scale,
+            rotation: node.style.rotation,
             text: if is_text { node.props.text.clone() } else { None },
             text_color: if is_text { node.props.text_color } else { None },
             font_size: if is_text { node.props.font_size } else { None },
@@ -201,12 +208,12 @@ fn sync_node_recursive(
     let needs_scene_node = needs_visual(info.widget_type, info.background, info.border_width);
 
     if needs_scene_node {
-        let shape_type = if info.widget_type == WidgetType::Image {
-            ShapeType::Rect
-        } else if info.corner_radius > 0.0 {
-            ShapeType::RoundedRect
-        } else {
-            ShapeType::Rect
+        let shape_type = match info.widget_type {
+            WidgetType::Image | WidgetType::Rect => ShapeType::Rect,
+            WidgetType::RoundedRect => ShapeType::RoundedRect,
+            WidgetType::Circle | WidgetType::Ellipse => ShapeType::Circle,
+            _ if info.corner_radius > 0.0 => ShapeType::RoundedRect,
+            _ => ShapeType::Rect,
         };
 
         let scene_id = if let Some(id) = info.scene_node {
@@ -246,6 +253,10 @@ fn sync_node_recursive(
                 }),
             );
         }
+
+        scene.set_translate(scene_id, info.translate);
+        scene.set_scale(scene_id, info.scale);
+        scene.set_rotation(scene_id, info.rotation);
     } else if let Some(scene_id) = info.scene_node {
         // Don't remove Text scene nodes — they hold glyph children managed by render_text_if_needed
         if info.widget_type != WidgetType::Text {
@@ -331,6 +342,7 @@ fn needs_visual(widget_type: WidgetType, background: Option<Color>, border_width
         }
         WidgetType::Stack => background.is_some(),
         WidgetType::Text => false,
-        WidgetType::Image => true,
+        WidgetType::Image | WidgetType::Rect | WidgetType::RoundedRect
+        | WidgetType::Circle | WidgetType::Ellipse => true,
     }
 }

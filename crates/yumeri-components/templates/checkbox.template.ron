@@ -1,0 +1,56 @@
+Template(
+    name: "Checkbox",
+    tokens: {
+        "box_size": Float(20.0),
+        "check_font_size": Float(14.0),
+    },
+    animations: {},
+    root: (
+        widget: Row,
+        style: (
+            gap: Some(Token("space-2")),
+            align_items: Some(Center),
+        ),
+        children: [
+            (
+                id: Some("box"),
+                widget: RoundedRect,
+                style: (
+                    width: Some(Px(Token("box_size"))),
+                    height: Some(Px(Token("box_size"))),
+                    corner_radius: Some(Token("radius-xs")),
+                    align_items: Some(Center),
+                    justify_content: Some(Center),
+                ),
+                states: {
+                    "default": (background: Some(Token("border"))),
+                    "checked": (background: Some(Token("primary"))),
+                    "hovered": (background: Some(Token("border-strong"))),
+                    "checked+hovered": (background: Some(Token("primary-hover"))),
+                },
+                transitions: [
+                    (property: BackgroundColor, duration_ms: 150, easing: EaseInOutCubic),
+                ],
+                children: [
+                    (
+                        widget: Text,
+                        props: Some((
+                            text: Binding("check_text"),
+                            font_size: Some(Token("check_font_size")),
+                            text_color: Some(Token("on-primary")),
+                        )),
+                    ),
+                ],
+            ),
+            (
+                widget: Text,
+                visible: Some(Binding("has_label")),
+                props: Some((
+                    text: Binding("label"),
+                    font_size: Some(Token("text-base")),
+                    text_color: Some(Token("text")),
+                )),
+            ),
+        ],
+    ),
+)

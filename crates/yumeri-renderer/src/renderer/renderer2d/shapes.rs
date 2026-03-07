@@ -32,10 +32,11 @@ pub(crate) enum Shape {
     Circle(Circle),
 }
 
-// GPU-side instance data: 16 floats per instance (64 bytes)
+// GPU-side instance data: 20 floats per instance (80 bytes)
 // [pos.x, pos.y, size.x, size.y, corner_radius, shape_type, r, g, b, a,
-//  texture_index, uv_min.x, uv_min.y, uv_max.x, uv_max.y, _padding]
-pub(crate) const FLOATS_PER_INSTANCE: usize = 16;
+//  texture_index, uv_min.x, uv_min.y, uv_max.x, uv_max.y,
+//  cos_r, sin_r, scale_x, scale_y, _padding]
+pub(crate) const FLOATS_PER_INSTANCE: usize = 20;
 pub(crate) const NO_TEXTURE_INDEX: f32 = -1.0;
 
 pub(crate) fn pack_instance(
@@ -45,6 +46,9 @@ pub(crate) fn pack_instance(
     shape_type: ShapeType,
     color: Color,
     texture: Option<Texture>,
+    cos_r: f32,
+    sin_r: f32,
+    scale: [f32; 2],
     resolve: impl Fn(TextureId) -> u32,
 ) -> [f32; FLOATS_PER_INSTANCE] {
     let (tex_index, uv_min_x, uv_min_y, uv_max_x, uv_max_y) = match texture {
@@ -77,6 +81,10 @@ pub(crate) fn pack_instance(
         uv_min_y,
         uv_max_x,
         uv_max_y,
+        cos_r,
+        sin_r,
+        scale[0],
+        scale[1],
         0.0, // padding
     ]
 }
@@ -94,6 +102,7 @@ impl Shape {
                 ShapeType::Rect,
                 r.color,
                 r.texture,
+                1.0, 0.0, [1.0, 1.0],
                 resolve,
             ),
             Shape::RoundedRect(r) => pack_instance(
@@ -103,6 +112,7 @@ impl Shape {
                 ShapeType::RoundedRect,
                 r.color,
                 r.texture,
+                1.0, 0.0, [1.0, 1.0],
                 resolve,
             ),
             Shape::Circle(c) => pack_instance(
@@ -112,6 +122,7 @@ impl Shape {
                 ShapeType::Circle,
                 c.color,
                 c.texture,
+                1.0, 0.0, [1.0, 1.0],
                 resolve,
             ),
         }

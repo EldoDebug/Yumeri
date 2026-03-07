@@ -4,10 +4,13 @@ use yumeri_animation::animator::Animator;
 
 use crate::callback::AnyCallback;
 use crate::event::EventPayload;
+use crate::template_provider::TemplateProvider;
+use crate::template_view_builder::TemplateViewBuilder;
 
 pub struct ViewCtx {
     owner_type: TypeId,
     animator: *mut Animator,
+    template_provider: Option<*const dyn TemplateProvider>,
 }
 
 impl ViewCtx {
@@ -15,7 +18,16 @@ impl ViewCtx {
         Self {
             owner_type,
             animator,
+            template_provider: None,
         }
+    }
+
+    pub(crate) fn with_template_provider_ptr(
+        mut self,
+        provider: Option<*const dyn TemplateProvider>,
+    ) -> Self {
+        self.template_provider = provider;
+        self
     }
 
     pub fn callback<C: 'static>(
@@ -35,5 +47,9 @@ impl ViewCtx {
         // UiTree ensures this by holding a mutable reference to the Animator
         // throughout the view phase.
         unsafe { &mut *self.animator }
+    }
+
+    pub fn template(&self, name: &str) -> TemplateViewBuilder {
+        TemplateViewBuilder::new(name, self.template_provider)
     }
 }

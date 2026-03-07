@@ -1,9 +1,11 @@
 [package]
-name = "yumeri-components"
+name = "yumeri-template"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+ron = "0.9"
 yumeri-ui = { version = "0.1.0", path = "../yumeri-ui" }
 yumeri-types = { version = "0.1.0", path = "../yumeri-types" }
-yumeri-template = { version = "0.1.0", path = "../yumeri-template" }
+yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }

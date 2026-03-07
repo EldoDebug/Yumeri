@@ -9,6 +9,7 @@ use crate::element::{WidgetProps, WidgetType};
 use crate::event::{EventKind, EventPayload};
 use crate::event::focus::FocusState;
 use crate::style::Style;
+use crate::template_provider::TemplateProvider;
 use crate::transition::{ActiveTransition, TransitionSnapshot};
 
 new_key_type! { pub struct UiNodeId; }
@@ -43,6 +44,7 @@ pub struct UiTree {
     pub(crate) cursor_pos: (f32, f32),
     pub(crate) hovered_node: Option<UiNodeId>,
     pub(crate) pending_scene_removals: Vec<SceneNodeId>,
+    pub(crate) template_provider: Option<Box<dyn TemplateProvider>>,
 }
 
 impl UiTree {
@@ -59,12 +61,30 @@ impl UiTree {
             cursor_pos: (0.0, 0.0),
             hovered_node: None,
             pending_scene_removals: Vec::new(),
+            template_provider: None,
         }
+    }
+
+    pub fn set_template_provider(&mut self, provider: impl TemplateProvider + 'static) {
+        self.template_provider = Some(Box::new(provider));
+    }
+
+    pub fn template_provider(&self) -> Option<&dyn TemplateProvider> {
+        self.template_provider.as_deref()
+    }
+
+    pub(crate) fn template_provider_ptr(&self) -> Option<*const dyn TemplateProvider> {
+        self.template_provider.as_deref()
+            .map(|p| p as *const dyn TemplateProvider)
     }
 
     pub fn set_viewport_size(&mut self, width: f32, height: f32) {
         self.viewport_size = (width, height);
         self.needs_layout = true;
+    }
+
+    pub fn request_rebuild(&mut self) {
+        self.needs_rebuild = true;
     }
 
     pub fn animator(&mut self) -> &mut Animator {

@@ -202,6 +202,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -250,6 +256,9 @@ name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "block"
@@ -1932,6 +1941,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "ron"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63f3aa105dea217ef30d89581b65a4d527a19afc95ef5750be3890e8d3c5b837"
+dependencies = [
+ "base64",
+ "bitflags 2.11.0",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
+]
+
+[[package]]
 name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3322,8 +3344,10 @@ dependencies = [
  "thiserror 2.0.18",
  "winit",
  "yumeri-animation",
+ "yumeri-components",
  "yumeri-font",
  "yumeri-renderer",
+ "yumeri-template",
  "yumeri-types",
  "yumeri-ui",
  "yumeri-video",
@@ -3343,6 +3367,7 @@ dependencies = [
 name = "yumeri-components"
 version = "0.1.0"
 dependencies = [
+ "yumeri-template",
  "yumeri-types",
  "yumeri-ui",
 ]
@@ -3397,6 +3422,17 @@ dependencies = [
  "yumeri-live2d",
  "yumeri-types",
  "yumeri-video",
+]
+
+[[package]]
+name = "yumeri-template"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+ "yumeri-animation",
+ "yumeri-types",
+ "yumeri-ui",
 ]
 
 [[package]]

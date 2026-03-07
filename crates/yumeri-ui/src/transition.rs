@@ -53,6 +53,9 @@ pub enum TransitionProperty {
     Width,
     Height,
     CornerRadius,
+    Translate,
+    Scale,
+    Rotation,
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +65,9 @@ pub struct TransitionSnapshot {
     pub width: f32,
     pub height: f32,
     pub corner_radius: f32,
+    pub translate: [f32; 2],
+    pub scale: [f32; 2],
+    pub rotation: f32,
 }
 
 #[allow(dead_code)]

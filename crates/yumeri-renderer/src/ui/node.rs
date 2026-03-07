@@ -30,6 +30,10 @@ pub(crate) struct Node {
     pub(crate) visible: bool,
     pub(crate) z_index: i32,
 
+    pub(crate) translate: [f32; 2],
+    pub(crate) scale: [f32; 2],
+    pub(crate) rotation: f32,
+
     pub(crate) world_position: [f32; 2],
     pub(crate) render_index: Option<u32>,
 
@@ -51,6 +55,9 @@ impl Node {
             texture: None,
             visible: true,
             z_index: 0,
+            translate: [0.0, 0.0],
+            scale: [1.0, 1.0],
+            rotation: 0.0,
             world_position: [0.0, 0.0],
             render_index: None,
             dirty: DirtyFlags::all(),
@@ -66,6 +73,7 @@ impl Node {
         &self,
         resolve: impl Fn(TextureId) -> u32,
     ) -> [f32; FLOATS_PER_INSTANCE] {
+        let (cos_r, sin_r) = (self.rotation.cos(), self.rotation.sin());
         pack_instance(
             self.world_position,
             self.size,
@@ -73,6 +81,9 @@ impl Node {
             self.shape_type,
             self.color,
             self.texture,
+            cos_r,
+            sin_r,
+            self.scale,
             resolve,
         )
     }

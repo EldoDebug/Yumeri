@@ -1,0 +1,84 @@
+Template(
+    name: "ShowcaseCard",
+    tokens: {},
+    animations: {
+        "entrance": Timeline((
+            tracks: [
+                (target: "bg", animation: (
+                    property: Opacity,
+                    frames: [(at: 0.0, value: Float(0.0)), (at: 1.0, value: Float(1.0))],
+                    duration_ms: 300,
+                    easing: EaseOutCubic,
+                    loop_mode: None,
+                    direction: Normal,
+                ), offset: Start),
+                (target: "title", animation: (
+                    property: Translate,
+                    frames: [(at: 0.0, value: Vec2([0.0, 10.0])), (at: 1.0, value: Vec2([0.0, 0.0]))],
+                    duration_ms: 400,
+                    easing: EaseOutCubic,
+                    loop_mode: None,
+                    direction: Normal,
+                ), offset: WithPrevious),
+            ],
+            duration_ms: 400,
+            loop_mode: None,
+        )),
+        "pulse": Keyframes((
+            property: Scale,
+            frames: [
+                (at: 0.0, value: Vec2([1.0, 1.0])),
+                (at: 0.5, value: Vec2([1.05, 1.05])),
+                (at: 1.0, value: Vec2([1.0, 1.0])),
+            ],
+            duration_ms: 2000,
+            easing: EaseInOutSine,
+            loop_mode: Forever,
+            direction: Normal,
+        )),
+    },
+    root: (
+        id: Some("bg"),
+        widget: Container,
+        style: (
+            width: Some(Px(Literal(280.0))),
+            padding: Some(All(Token("space-6"))),
+            corner_radius: Some(Token("radius-md")),
+            background: Some(Token("surface")),
+        ),
+        states: {
+            "hovered": (scale: Some([1.02, 1.02])),
+        },
+        transitions: [
+            (property: Scale, duration_ms: 200, easing: EaseOutCubic),
+        ],
+        children: [
+            (
+                widget: Circle,
+                style: (
+                    width: Some(Px(Literal(40.0))),
+                    height: Some(Px(Literal(40.0))),
+                    background: Some(Token("primary-light")),
+                    opacity: Some(0.5),
+                ),
+            ),
+            (
+                id: Some("title"),
+                widget: Text,
+                props: Some((
+                    text: Binding("title"),
+                    font_size: Some(Token("text-xl")),
+                    text_color: Some(Token("text-heading")),
+                )),
+            ),
+            (
+                widget: Text,
+                props: Some((
+                    text: Binding("description"),
+                    font_size: Some(Token("text-base")),
+                    text_color: Some(Token("text-secondary")),
+                )),
+            ),
+        ],
+    ),
+)

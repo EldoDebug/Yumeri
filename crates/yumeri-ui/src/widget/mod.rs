@@ -117,6 +117,7 @@ mod column;
 mod container;
 mod image;
 mod row;
+mod shape;
 mod stack;
 mod text;
 
@@ -124,5 +125,6 @@ pub use column::Column;
 pub use container::Container;
 pub use image::Image;
 pub use row::Row;
+pub use shape::{CircleWidget, EllipseWidget, RectWidget, RoundedRectWidget};
 pub use stack::Stack;
 pub use text::Text;

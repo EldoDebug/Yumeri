@@ -71,6 +71,10 @@ pub enum WidgetType {
     Stack,
     Text,
     Image,
+    Rect,
+    RoundedRect,
+    Circle,
+    Ellipse,
 }
 
 impl WidgetType {
