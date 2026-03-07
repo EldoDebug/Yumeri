@@ -6,7 +6,6 @@ use raw_window_handle::{
 };
 use wayland_client::protocol::{wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_surface};
 use wayland_client::{Connection, Dispatch, QueueHandle};
-use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 
 use crate::error::{Result, WmError};
 
@@ -43,11 +42,11 @@ pub struct WaylandBackend {
 
 struct BackendState {
     compositor: Option<wl_compositor::WlCompositor>,
-    xdg_wm_base: Option<xdg_wm_base::XdgWmBase>,
+    xdg_wm_base: Option<wayland_protocols::xdg::shell::client::xdg_wm_base::XdgWmBase>,
     seat: Option<wl_seat::WlSeat>,
     surface: Option<wl_surface::WlSurface>,
-    xdg_surface: Option<xdg_surface::XdgSurface>,
-    xdg_toplevel: Option<xdg_toplevel::XdgToplevel>,
+    xdg_surface: Option<wayland_protocols::xdg::shell::client::xdg_surface::XdgSurface>,
+    xdg_toplevel: Option<wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel>,
     configured: bool,
     width: u32,
     height: u32,
@@ -88,7 +87,6 @@ impl WaylandBackend {
         display.get_registry(&qh, ());
         queue.roundtrip(&mut state).map_err(WmError::WaylandDispatch)?;
 
-        // Create surface
         let compositor = state
             .compositor
             .as_ref()
@@ -108,13 +106,12 @@ impl WaylandBackend {
             .as_ref()
             .unwrap()
             .get_toplevel(&qh, ());
-        toplevel.set_title("Yumeri WM".into());
-        toplevel.set_app_id("yumeri-wm".into());
+        toplevel.set_title("Yumeri Compositor".into());
+        toplevel.set_app_id("yumeri-compositor".into());
         state.xdg_toplevel = Some(toplevel);
 
         surface.commit();
 
-        // Wait for initial configure
         while !state.configured {
             queue.blocking_dispatch(&mut state).map_err(WmError::WaylandDispatch)?;
         }
@@ -199,7 +196,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for BackendState {
                 }
                 "xdg_wm_base" => {
                     state.xdg_wm_base =
-                        Some(registry.bind::<xdg_wm_base::XdgWmBase, _, _>(name, version.min(3), qh, ()));
+                        Some(registry.bind::<wayland_protocols::xdg::shell::client::xdg_wm_base::XdgWmBase, _, _>(name, version.min(3), qh, ()));
                 }
                 "wl_seat" => {
                     let seat =
@@ -234,31 +231,31 @@ impl Dispatch<wl_surface::WlSurface, ()> for BackendState {
     ) {}
 }
 
-impl Dispatch<xdg_wm_base::XdgWmBase, ()> for BackendState {
+impl Dispatch<wayland_protocols::xdg::shell::client::xdg_wm_base::XdgWmBase, ()> for BackendState {
     fn event(
         _state: &mut Self,
-        wm_base: &xdg_wm_base::XdgWmBase,
-        event: xdg_wm_base::Event,
+        wm_base: &wayland_protocols::xdg::shell::client::xdg_wm_base::XdgWmBase,
+        event: wayland_protocols::xdg::shell::client::xdg_wm_base::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        if let xdg_wm_base::Event::Ping { serial } = event {
+        if let wayland_protocols::xdg::shell::client::xdg_wm_base::Event::Ping { serial } = event {
             wm_base.pong(serial);
         }
     }
 }
 
-impl Dispatch<xdg_surface::XdgSurface, ()> for BackendState {
+impl Dispatch<wayland_protocols::xdg::shell::client::xdg_surface::XdgSurface, ()> for BackendState {
     fn event(
         state: &mut Self,
-        xdg_surface: &xdg_surface::XdgSurface,
-        event: xdg_surface::Event,
+        xdg_surface: &wayland_protocols::xdg::shell::client::xdg_surface::XdgSurface,
+        event: wayland_protocols::xdg::shell::client::xdg_surface::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        if let xdg_surface::Event::Configure { serial } = event {
+        if let wayland_protocols::xdg::shell::client::xdg_surface::Event::Configure { serial } = event {
             xdg_surface.ack_configure(serial);
             if let Some(surface) = &state.surface {
                 surface.commit();
@@ -268,17 +265,17 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for BackendState {
     }
 }
 
-impl Dispatch<xdg_toplevel::XdgToplevel, ()> for BackendState {
+impl Dispatch<wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel, ()> for BackendState {
     fn event(
         state: &mut Self,
-        _toplevel: &xdg_toplevel::XdgToplevel,
-        event: xdg_toplevel::Event,
+        _toplevel: &wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel,
+        event: wayland_protocols::xdg::shell::client::xdg_toplevel::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
         match event {
-            xdg_toplevel::Event::Configure {
+            wayland_protocols::xdg::shell::client::xdg_toplevel::Event::Configure {
                 width,
                 height,
                 states: _,
@@ -296,7 +293,7 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for BackendState {
                     }
                 }
             }
-            xdg_toplevel::Event::Close => {
+            wayland_protocols::xdg::shell::client::xdg_toplevel::Event::Close => {
                 state.closed = true;
             }
             _ => {}
@@ -339,21 +336,19 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for BackendState {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        match event {
-            wl_keyboard::Event::Key {
-                serial: _,
+        if let wl_keyboard::Event::Key {
+            serial: _,
+            time,
+            key,
+            state,
+        } = event
+        {
+            let pressed = matches!(state, wayland_client::WEnum::Value(wl_keyboard::KeyState::Pressed));
+            this.events.push_back(BackendEvent::KeyInput {
+                keycode: key,
+                pressed,
                 time,
-                key,
-                state,
-            } => {
-                let pressed = matches!(state, wayland_client::WEnum::Value(wl_keyboard::KeyState::Pressed));
-                this.events.push_back(BackendEvent::KeyInput {
-                    keycode: key,
-                    pressed,
-                    time,
-                });
-            }
-            _ => {}
+            });
         }
     }
 }
@@ -397,7 +392,6 @@ impl Dispatch<wl_pointer::WlPointer, ()> for BackendState {
     }
 }
 
-// Frame callback for vsync
 impl Dispatch<wayland_client::protocol::wl_callback::WlCallback, ()> for BackendState {
     fn event(
         state: &mut Self,

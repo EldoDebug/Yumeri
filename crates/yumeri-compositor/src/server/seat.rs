@@ -118,9 +118,9 @@ pub fn create_keymap_fd() -> Option<(std::os::fd::OwnedFd, u32)> {
 
     let keymap_str = keymap.get_as_string(xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1);
     let keymap_bytes = keymap_str.as_bytes();
-    let size = keymap_bytes.len() + 1; // null terminator
+    let size = keymap_bytes.len() + 1;
 
-    let name = std::ffi::CString::new("yumeri-wm-keymap").ok()?;
+    let name = std::ffi::CString::new("yumeri-compositor-keymap").ok()?;
     let fd = rustix::fs::memfd_create(&name, rustix::fs::MemfdFlags::CLOEXEC).ok()?;
 
     use std::io::Write;

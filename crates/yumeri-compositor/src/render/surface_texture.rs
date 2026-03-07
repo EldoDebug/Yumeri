@@ -19,7 +19,6 @@ pub fn shm_buffer_to_image(
         _ => return None,
     };
 
-    // Bounds check: ensure the buffer fits within the pool
     let required = offset + (height as usize - 1) * stride + width as usize * bpp;
     if required > pool_data.len() {
         return None;
@@ -32,7 +31,6 @@ pub fn shm_buffer_to_image(
         let row_start = offset + y * stride;
         let row = &pool_data[row_start..row_start + width as usize * bpp];
         for pixel in row.chunks_exact(4) {
-            // ARGB/XRGB8888 layout in memory (little-endian): B G R A
             rgba.push(pixel[2]); // R
             rgba.push(pixel[1]); // G
             rgba.push(pixel[0]); // B

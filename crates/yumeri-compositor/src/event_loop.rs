@@ -5,7 +5,6 @@ use wayland_server::Display;
 use crate::compositor::CompositorState;
 use crate::input;
 use crate::render;
-use crate::shell::window::WindowId;
 
 pub fn run(
     mut display: Display<CompositorState>,
@@ -15,7 +14,6 @@ pub fn run(
     log::info!("Entering event loop");
 
     while state.running {
-        // Accept new client connections
         while let Some(stream) = listener.accept().map_err(crate::error::WmError::Io)? {
             if let Err(e) = display.handle().insert_client(
                 stream,
@@ -25,13 +23,11 @@ pub fn run(
             }
         }
 
-        // Dispatch backend events
         state.backend.dispatch()?;
         while let Some(event) = state.backend.next_event() {
             input::handle_backend_event(&mut state, event);
         }
 
-        // Dispatch Wayland server events
         if let Err(e) = display.dispatch_clients(&mut state) {
             log::error!("dispatch_clients error: {e}");
         }
@@ -39,17 +35,14 @@ pub fn run(
             log::error!("flush_clients error: {e}");
         }
 
-        // Process committed surfaces -> stage images for GPU upload
         process_surface_commits(&mut state);
 
-        // Render frame (including pending texture uploads)
         if state.frame_requested {
             state.frame_requested = false;
             render::render_frame(&mut state);
             state.backend.present();
             send_frame_callbacks(&mut state);
         } else {
-            // No frame to render; sleep briefly to avoid busy-waiting
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -93,7 +86,6 @@ fn process_surface_commits(state: &mut CompositorState) {
 
         let Some(image) = image else { continue };
 
-        // Release the buffer
         if let Some(surf) = state.surfaces.get_mut(&surface_id) {
             if let Some(ref buf) = surf.buffer {
                 buf.release();
@@ -112,7 +104,6 @@ fn process_surface_commits(state: &mut CompositorState) {
             }
             new_images.push((wid, image));
 
-            // Auto-focus newly mapped windows
             if just_mapped {
                 crate::input::set_keyboard_focus(state, Some(wid));
             }
@@ -120,16 +111,8 @@ fn process_surface_commits(state: &mut CompositorState) {
     }
 
     if !new_images.is_empty() {
-        PENDING_IMAGES.lock().unwrap().extend(new_images);
+        state.pending_images.extend(new_images);
     }
-}
-
-use std::sync::Mutex;
-
-static PENDING_IMAGES: Mutex<Vec<(WindowId, yumeri_image::Image)>> = Mutex::new(Vec::new());
-
-pub fn take_pending_images() -> Vec<(WindowId, yumeri_image::Image)> {
-    std::mem::take(&mut PENDING_IMAGES.lock().unwrap())
 }
 
 fn send_frame_callbacks(state: &mut CompositorState) {

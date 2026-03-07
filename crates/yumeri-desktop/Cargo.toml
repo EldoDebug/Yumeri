@@ -1,0 +1,9 @@
+[package]
+name = "yumeri-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+yumeri-renderer = { path = "../yumeri-renderer" }
+yumeri-shell = { path = "../yumeri-shell" }
+yumeri-types = { path = "../yumeri-types" }

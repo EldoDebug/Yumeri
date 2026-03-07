@@ -7,43 +7,40 @@ mod event_loop;
 mod input;
 mod render;
 mod server;
-mod shell;
 
 use std::collections::HashMap;
 
 use slotmap::SlotMap;
 use wayland_server::{Display, ListeningSocket};
+use yumeri_types::Color;
+use yumeri_wm::{FocusStack, LayoutConfig, LayoutEngine};
+use yumeri_shell::LayerShell;
+use yumeri_desktop::SolidColorWallpaper;
 
 use backend::WaylandBackend;
 use compositor::CompositorState;
-use shell::focus::FocusStack;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    log::info!("Starting Yumeri WM");
+    log::info!("Starting Yumeri Compositor");
 
     let width = 1280u32;
     let height = 720u32;
 
-    // Initialize backend
     let backend = WaylandBackend::new(width, height)?;
 
     let display_handle = backend.raw_display_handle();
     let window_handle = backend.raw_window_handle();
 
-    // Initialize GPU
     let gpu = yumeri_renderer::GpuContext::new(display_handle, window_handle)?;
     let render_state =
-        yumeri_renderer::WindowRenderState::new(&gpu, display_handle, window_handle, width, height, true, false)?;
+        yumeri_renderer::WindowRenderState::new(&gpu, display_handle, window_handle, width, height, true, false, Default::default())?;
 
-    // Initialize Wayland server
     let mut display: Display<CompositorState> = Display::new()?;
 
-    // Register globals
     server::register_globals(&mut display);
 
-    // Set up listening socket
     let listener = ListeningSocket::bind_auto("wayland", 0..33)?;
     let socket_name = listener
         .socket_name()
@@ -53,9 +50,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: single-threaded at this point, before any client connections
     unsafe { std::env::set_var("WAYLAND_DISPLAY", &socket_name); }
 
-    // Create keymap
     let (keymap_fd, keymap_size) = server::seat::create_keymap_fd()
         .ok_or_else(|| error::WmError::General("Failed to create keymap".into()))?;
+
+    let layout_config = LayoutConfig {
+        output_size: (width, height),
+        ..LayoutConfig::default()
+    };
+    let layout_engine = LayoutEngine::new(layout_config);
+
+    let mut layer_shell = LayerShell::new();
+    layer_shell.add(Box::new(SolidColorWallpaper::new(Color::rgb(0.15, 0.15, 0.2))));
 
     let state = CompositorState {
         backend,
@@ -68,6 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         windows: SlotMap::with_key(),
         focus_stack: FocusStack::new(),
+        layout_engine,
+        layer_shell,
 
         xdg_surface_window_map: HashMap::new(),
         surface_window_map: HashMap::new(),
@@ -83,7 +90,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         keyboard_keymap_size: keymap_size,
 
         grab: None,
-        next_window_position: (60, 60),
         serial_counter: 0,
 
         keyboards: Vec::new(),
@@ -92,6 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         running: true,
         frame_requested: true,
         pending_texture_removals: Vec::new(),
+        pending_images: Vec::new(),
     };
 
     event_loop::run(display, state, listener)?;

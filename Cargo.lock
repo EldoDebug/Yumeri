@@ -3380,6 +3380,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "yumeri-compositor"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "memmap2",
+ "raw-window-handle",
+ "rustix 1.1.4",
+ "slotmap",
+ "thiserror 2.0.18",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-server",
+ "xkbcommon",
+ "yumeri-desktop",
+ "yumeri-image",
+ "yumeri-renderer",
+ "yumeri-shell",
+ "yumeri-types",
+ "yumeri-wm",
+]
+
+[[package]]
+name = "yumeri-desktop"
+version = "0.1.0"
+dependencies = [
+ "yumeri-renderer",
+ "yumeri-shell",
+ "yumeri-types",
+]
+
+[[package]]
 name = "yumeri-font"
 version = "0.1.0"
 dependencies = [
@@ -3432,6 +3465,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yumeri-shell"
+version = "0.1.0"
+dependencies = [
+ "slotmap",
+ "yumeri-renderer",
+ "yumeri-types",
+]
+
+[[package]]
 name = "yumeri-template"
 version = "0.1.0"
 dependencies = [
@@ -3474,20 +3516,11 @@ dependencies = [
 name = "yumeri-wm"
 version = "0.1.0"
 dependencies = [
- "env_logger",
- "log",
- "memmap2",
- "raw-window-handle",
- "rustix 1.1.4",
+ "ash",
+ "gpu-allocator",
  "slotmap",
- "thiserror 2.0.18",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-server",
- "xkbcommon",
- "yumeri-image",
  "yumeri-renderer",
+ "yumeri-types",
 ]
 
 [[package]]

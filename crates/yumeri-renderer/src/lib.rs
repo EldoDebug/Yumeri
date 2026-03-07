@@ -5,8 +5,8 @@ pub(crate) mod graph;
 pub mod postfx;
 pub(crate) mod renderer;
 pub(crate) mod resource;
-pub mod texture;
 pub mod text;
+pub mod texture;
 pub mod ui;
 pub mod video;
 
@@ -18,10 +18,10 @@ mod render_state;
 
 pub use context::RenderContext2D;
 pub use error::RendererError;
-pub use postfx::{Grayscale, PostEffect, PostEffectChain};
 pub use gpu::GpuContext;
 pub use gpu::swapchain::{PreferredPresentMode, SwapchainConfig};
 pub use graph::{RenderGraphBuilder, ResourceId};
+pub use postfx::{Grayscale, PostEffect, PostEffectChain};
 pub use render_state::WindowRenderState;
 pub use renderer::renderer2d::{Circle, Rect, RoundedRect};
 pub use text::TextStyle;

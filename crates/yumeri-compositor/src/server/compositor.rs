@@ -5,8 +5,6 @@ use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, 
 
 use crate::compositor::{CompositorState, SurfaceState};
 
-// --- wl_compositor ---
-
 impl GlobalDispatch<wl_compositor::WlCompositor, ()> for CompositorState {
     fn bind(
         _state: &mut Self,
@@ -43,8 +41,6 @@ impl Dispatch<wl_compositor::WlCompositor, ()> for CompositorState {
         }
     }
 }
-
-// --- wl_surface ---
 
 impl Dispatch<wl_surface::WlSurface, ()> for CompositorState {
     fn request(
@@ -115,8 +111,6 @@ impl Dispatch<wl_surface::WlSurface, ()> for CompositorState {
     }
 }
 
-// --- wl_region ---
-
 impl Dispatch<wl_region::WlRegion, ()> for CompositorState {
     fn request(
         _state: &mut Self,
@@ -126,13 +120,8 @@ impl Dispatch<wl_region::WlRegion, ()> for CompositorState {
         _data: &(),
         _dh: &DisplayHandle,
         _data_init: &mut DataInit<'_, Self>,
-    ) {
-        // Regions are not used in this simple WM
-    }
+    ) {}
 }
-
-// --- wl_callback (frame callbacks) ---
-// wl_callback has no client requests; Dispatch is required by wayland-server but never called.
 
 impl Dispatch<wl_callback::WlCallback, ()> for CompositorState {
     fn request(
@@ -145,8 +134,6 @@ impl Dispatch<wl_callback::WlCallback, ()> for CompositorState {
         _data_init: &mut DataInit<'_, Self>,
     ) {}
 }
-
-// --- wl_buffer ---
 
 impl Dispatch<wl_buffer::WlBuffer, ()> for CompositorState {
     fn request(

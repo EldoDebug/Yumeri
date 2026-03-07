@@ -1,0 +1,10 @@
+[package]
+name = "yumeri-shell"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+yumeri-renderer = { path = "../yumeri-renderer" }
+yumeri-types = { path = "../yumeri-types" }
+
+slotmap = "1"

@@ -3,24 +3,14 @@ name = "yumeri-wm"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "yumeri-wm"
-path = "src/main.rs"
+[lib]
+name = "yumeri_wm"
+path = "src/lib.rs"
 
 [dependencies]
 yumeri-renderer = { path = "../yumeri-renderer" }
-yumeri-image = { path = "../yumeri-image" }
+yumeri-types = { path = "../yumeri-types" }
 
-wayland-server = "0.31"
-wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["server", "client"] }
-wayland-backend = { version = "0.3", features = ["server_system", "client_system"] }
-
-raw-window-handle = "0.6"
-memmap2 = "0.9"
+ash = { version = "0.38.0", default-features = false, features = ["std", "loaded"] }
+gpu-allocator = { version = "0.28.0", features = ["vulkan"] }
 slotmap = "1"
-log = "0.4"
-env_logger = "0.11"
-thiserror = "2"
-rustix = { version = "1", features = ["fs"] }
-xkbcommon = { version = "0.8", features = ["wayland"] }

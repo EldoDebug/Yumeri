@@ -1,15 +1,28 @@
 use std::collections::HashMap;
 
 use slotmap::SlotMap;
+use wayland_protocols::xdg::shell::server::{xdg_surface, xdg_toplevel};
 use wayland_server::protocol::{wl_buffer, wl_keyboard, wl_pointer, wl_shm};
 use wayland_server::backend::ObjectId;
-
 use wayland_server::Resource;
 use yumeri_renderer::{GpuContext, TextureId, WindowRenderState};
+use yumeri_shell::LayerShell;
+use yumeri_wm::{FocusStack, LayoutEngine, WindowId};
 
 use crate::backend::WaylandBackend;
-use crate::shell::focus::FocusStack;
-use crate::shell::window::{ManagedWindow, WindowId};
+
+pub struct ManagedWindow {
+    pub surface: wayland_server::protocol::wl_surface::WlSurface,
+    pub xdg_toplevel: Option<xdg_toplevel::XdgToplevel>,
+    pub xdg_surface: Option<xdg_surface::XdgSurface>,
+    pub xdg_surface_id: Option<ObjectId>,
+    pub position: (i32, i32),
+    pub size: (u32, u32),
+    pub title: String,
+    pub app_id: String,
+    pub texture_id: Option<TextureId>,
+    pub mapped: bool,
+}
 
 pub struct CompositorState {
     pub backend: WaylandBackend,
@@ -22,6 +35,8 @@ pub struct CompositorState {
 
     pub windows: SlotMap<WindowId, ManagedWindow>,
     pub focus_stack: FocusStack,
+    pub layout_engine: LayoutEngine,
+    pub layer_shell: LayerShell,
 
     pub xdg_surface_window_map: HashMap<ObjectId, WindowId>,
     pub surface_window_map: HashMap<ObjectId, WindowId>,
@@ -37,7 +52,6 @@ pub struct CompositorState {
     pub keyboard_keymap_size: u32,
 
     pub grab: Option<Grab>,
-    pub next_window_position: (i32, i32),
     pub serial_counter: u32,
 
     pub keyboards: Vec<wl_keyboard::WlKeyboard>,
@@ -46,6 +60,7 @@ pub struct CompositorState {
     pub running: bool,
     pub frame_requested: bool,
     pub pending_texture_removals: Vec<TextureId>,
+    pub pending_images: Vec<(WindowId, yumeri_image::Image)>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -108,36 +123,26 @@ impl CompositorState {
 
     pub fn remove_window(&mut self, wid: WindowId) {
         self.focus_stack.remove(wid);
+        let mut xdg_surface_id = None;
         if let Some(w) = self.windows.get(wid) {
             self.surface_window_map.remove(&w.surface.id());
+            xdg_surface_id = w.xdg_surface_id.clone();
             if let Some(tex_id) = w.texture_id {
                 self.pending_texture_removals.push(tex_id);
             }
         }
         self.windows.remove(wid);
-        self.xdg_surface_window_map.retain(|_, &mut v| v != wid);
+        if let Some(id) = xdg_surface_id {
+            self.xdg_surface_window_map.remove(&id);
+        }
         if self.keyboard_focus == Some(wid) {
             self.keyboard_focus = None;
         }
         if self.pointer_focus == Some(wid) {
             self.pointer_focus = None;
         }
-        // Clear grab if it references the removed window
         if matches!(self.grab, Some(Grab::Move { window_id, .. } | Grab::Resize { window_id, .. }) if window_id == wid) {
             self.grab = None;
         }
-    }
-
-    pub fn allocate_window_position(&mut self) -> (i32, i32) {
-        let pos = self.next_window_position;
-        self.next_window_position.0 += 30;
-        self.next_window_position.1 += 30;
-        if self.next_window_position.0 > self.output_size.0 as i32 - 200 {
-            self.next_window_position.0 = 60;
-        }
-        if self.next_window_position.1 > self.output_size.1 as i32 - 200 {
-            self.next_window_position.1 = 60;
-        }
-        pos
     }
 }

@@ -4,9 +4,8 @@ use wayland_server::Resource;
 use crate::backend::BackendEvent;
 use crate::compositor::{CompositorState, Grab};
 use crate::render;
-use crate::shell::window::WindowId;
+use yumeri_wm::WindowId;
 
-// xdg_toplevel resize edge bitmask values
 const EDGE_TOP: u32 = 1;
 const EDGE_BOTTOM: u32 = 2;
 const EDGE_LEFT: u32 = 4;
@@ -14,7 +13,6 @@ const EDGE_RIGHT: u32 = 8;
 
 const MIN_WINDOW_SIZE: i32 = 100;
 
-// wl_pointer.frame event was added in version 5
 const WL_POINTER_FRAME_SINCE: u32 = 5;
 
 pub fn handle_backend_event(state: &mut CompositorState, event: BackendEvent) {
@@ -32,6 +30,7 @@ pub fn handle_backend_event(state: &mut CompositorState, event: BackendEvent) {
         } => handle_key_input(state, keycode, pressed, time),
         BackendEvent::Resize { width, height } => {
             state.output_size = (width, height);
+            state.layout_engine.set_output_size(width, height);
             let _ = state.render_state.on_resize(&state.gpu, width, height);
         }
         BackendEvent::FrameRequest => {
@@ -47,7 +46,6 @@ fn handle_pointer_motion(state: &mut CompositorState, x: f64, y: f64, time: u32)
     state.pointer_x = x;
     state.pointer_y = y;
 
-    // Handle active grab
     if let Some(ref grab) = state.grab {
         match *grab {
             Grab::Move {
@@ -83,7 +81,6 @@ fn handle_pointer_motion(state: &mut CompositorState, x: f64, y: f64, time: u32)
 
                     let clamped_w = new_w.max(MIN_WINDOW_SIZE);
                     let clamped_h = new_h.max(MIN_WINDOW_SIZE);
-                    // Adjust position so the opposite edge stays anchored
                     if edges & EDGE_LEFT != 0 { new_x += new_w - clamped_w; }
                     if edges & EDGE_TOP != 0 { new_y += new_h - clamped_h; }
 
@@ -95,7 +92,6 @@ fn handle_pointer_motion(state: &mut CompositorState, x: f64, y: f64, time: u32)
         }
     }
 
-    // Hit test for pointer focus
     let new_focus = render::hit_test_window(&state.focus_stack, &state.windows, x, y);
 
     if new_focus != state.pointer_focus {
@@ -120,7 +116,6 @@ fn handle_pointer_button(state: &mut CompositorState, button: u32, pressed: bool
     }
 
     if pressed {
-        // Use existing pointer focus (already computed by motion handler)
         if let Some(wid) = state.pointer_focus {
             state.focus_stack.raise(wid);
             set_keyboard_focus(state, Some(wid));

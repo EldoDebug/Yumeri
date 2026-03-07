@@ -5,8 +5,6 @@ use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, 
 
 use crate::compositor::{CompositorState, ShmBufferSpec, ShmPoolState};
 
-// --- wl_shm ---
-
 impl GlobalDispatch<wl_shm::WlShm, ()> for CompositorState {
     fn bind(
         _state: &mut Self,
@@ -54,8 +52,6 @@ fn create_pool_state(fd: OwnedFd, size: usize) -> std::io::Result<ShmPoolState> 
     let mmap = unsafe { memmap2::MmapOptions::new().len(size).map_mut(raw_fd)? };
     Ok(ShmPoolState { mmap, fd, size })
 }
-
-// --- wl_shm_pool ---
 
 impl Dispatch<wl_shm_pool::WlShmPool, ()> for CompositorState {
     fn request(

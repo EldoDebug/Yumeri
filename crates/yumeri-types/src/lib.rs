@@ -23,6 +23,14 @@ impl Color {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ReservedRegions {
+    pub top: u32,
+    pub bottom: u32,
+    pub left: u32,
+    pub right: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ShapeType {

@@ -2,44 +2,33 @@ pub mod surface_texture;
 
 use std::cell::RefCell;
 
-use yumeri_renderer::{
-    Color, Rect, Texture, TextureId,
-};
+use yumeri_renderer::{Rect, Texture, TextureId};
+use yumeri_types::Color;
+use yumeri_wm::{FocusStack, WindowId};
 
-use crate::compositor::CompositorState;
-use crate::event_loop;
-use crate::shell::focus::FocusStack;
-use crate::shell::window::WindowId;
+use crate::compositor::{CompositorState, ManagedWindow};
 
 pub fn render_frame(state: &mut CompositorState) {
-    let pending = event_loop::take_pending_images();
+    let pending = std::mem::take(&mut state.pending_images);
 
-    // Collect old texture IDs for windows that will get new textures
     let old_textures: Vec<TextureId> = pending.iter().filter_map(|(wid, _)| {
         state.windows.get(*wid).and_then(|w| w.texture_id)
     }).collect();
 
-    // Use thread-local to pass texture IDs out of the closure (avoids rustc ICE with mut captures)
     thread_local! {
         static NEW_TEXTURES: RefCell<Vec<(WindowId, TextureId)>> = RefCell::new(Vec::new());
     }
     NEW_TEXTURES.with(|c| c.borrow_mut().clear());
 
-    // Textures queued for removal from destroyed windows
     let removals = std::mem::take(&mut state.pending_texture_removals);
 
     let result = state.render_state.render_frame(&state.gpu, |ctx| {
-        // Destroy textures from removed windows
         for tex_id in &removals {
             ctx.remove_texture(*tex_id);
         }
-
-        // Destroy old textures before uploading replacements
         for tex_id in &old_textures {
             ctx.remove_texture(*tex_id);
         }
-
-        // Upload pending textures
         for (wid, image) in &pending {
             match ctx.create_texture(image) {
                 Ok(tex_id) => {
@@ -56,7 +45,6 @@ pub fn render_frame(state: &mut CompositorState) {
         log::error!("render_frame upload pass failed: {e}");
     }
 
-    // Apply new texture IDs BEFORE building the draw list
     NEW_TEXTURES.with(|c| {
         for (wid, tex_id) in c.borrow().iter() {
             if let Some(w) = state.windows.get_mut(*wid) {
@@ -65,7 +53,6 @@ pub fn render_frame(state: &mut CompositorState) {
         }
     });
 
-    // Build draw list with up-to-date texture IDs
     let window_draw_list: Vec<((i32, i32), (u32, u32), Option<TextureId>)> =
         state.focus_stack.iter_back_to_front()
             .filter_map(|wid| {
@@ -75,16 +62,12 @@ pub fn render_frame(state: &mut CompositorState) {
             })
             .collect();
 
-    let result = state.render_state.render_frame(&state.gpu, |ctx| {
-        let (sw, sh) = ctx.surface_size();
+    let output_size = state.output_size;
+    let layer_shell = &state.layer_shell;
 
-        // Background
-        ctx.draw_rect(Rect {
-            position: [sw as f32 / 2.0, sh as f32 / 2.0],
-            size: [sw as f32 / 2.0, sh as f32 / 2.0],
-            color: Color::rgb(0.15, 0.15, 0.2),
-            texture: None,
-        });
+    let result = state.render_state.render_frame(&state.gpu, |ctx| {
+        // Layer shell: Background + Bottom
+        layer_shell.render_below_windows(ctx, output_size);
 
         // Windows back to front
         for (pos, size, tex_id) in &window_draw_list {
@@ -103,6 +86,9 @@ pub fn render_frame(state: &mut CompositorState) {
                 texture: tex,
             });
         }
+
+        // Layer shell: Top + Overlay
+        layer_shell.render_above_windows(ctx, output_size);
     }, None, None);
 
     if let Err(e) = result {
@@ -110,10 +96,9 @@ pub fn render_frame(state: &mut CompositorState) {
     }
 }
 
-/// Returns the window under the given pointer coordinates (front-to-back order).
 pub fn hit_test_window(
     focus_stack: &FocusStack,
-    windows: &slotmap::SlotMap<WindowId, crate::shell::window::ManagedWindow>,
+    windows: &slotmap::SlotMap<WindowId, ManagedWindow>,
     px: f64,
     py: f64,
 ) -> Option<WindowId> {

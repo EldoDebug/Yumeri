@@ -2,8 +2,7 @@ use wayland_protocols::xdg::shell::server::{xdg_popup, xdg_surface, xdg_toplevel
 use wayland_server::protocol::wl_surface::WlSurface;
 use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
-use crate::compositor::{CompositorState, Grab};
-use crate::shell::window::ManagedWindow;
+use crate::compositor::{CompositorState, Grab, ManagedWindow};
 
 const DEFAULT_WINDOW_WIDTH: u32 = 640;
 const DEFAULT_WINDOW_HEIGHT: u32 = 480;
@@ -77,12 +76,17 @@ impl Dispatch<xdg_surface::XdgSurface, XdgSurfaceData> for CompositorState {
                     },
                 );
 
-                // Create the managed window
-                let position = state.allocate_window_position();
+                let reserved = state.layer_shell.reserved_regions(state.output_size);
+                let layout = state
+                    .layout_engine
+                    .allocate_initial((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT), &reserved);
                 let window = ManagedWindow {
                     surface: data.wl_surface.clone(),
-                    position,
-                    size: (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT),
+                    xdg_toplevel: Some(toplevel.clone()),
+                    xdg_surface: Some(resource.clone()),
+                    xdg_surface_id: Some(xdg_surface_id.clone()),
+                    position: layout.position,
+                    size: layout.size,
                     title: String::new(),
                     app_id: String::new(),
                     texture_id: None,
@@ -97,10 +101,10 @@ impl Dispatch<xdg_surface::XdgSurface, XdgSurfaceData> for CompositorState {
                     .insert(data.surface_id.clone(), wid);
                 state.focus_stack.raise(wid);
 
-                // Send initial configure with suggested size and activated state
+                let (configure_w, configure_h) = layout.size;
                 let states =
                     (xdg_toplevel::State::Activated as u32).to_ne_bytes().to_vec();
-                toplevel.configure(DEFAULT_WINDOW_WIDTH as i32, DEFAULT_WINDOW_HEIGHT as i32, states);
+                toplevel.configure(configure_w as i32, configure_h as i32, states);
                 resource.configure(state.next_serial());
             }
             xdg_surface::Request::GetPopup { id, .. } => {
@@ -180,24 +184,32 @@ impl Dispatch<xdg_toplevel::XdgToplevel, XdgToplevelData> for CompositorState {
             }
             xdg_toplevel::Request::SetMaximized => {
                 if let Some(&wid) = state.xdg_surface_window_map.get(&data.xdg_surface_id) {
+                    let reserved = state.layer_shell.reserved_regions(state.output_size);
                     let (ow, oh) = state.output_size;
-                    if let Some(w) = state.windows.get_mut(wid) {
-                        w.position = (0, 0);
-                        w.size = (ow, oh);
+                    let x = reserved.left as i32;
+                    let y = reserved.top as i32;
+                    let w = ow.saturating_sub(reserved.left + reserved.right);
+                    let h = oh.saturating_sub(reserved.top + reserved.bottom);
+                    if let Some(win) = state.windows.get_mut(wid) {
+                        win.position = (x, y);
+                        win.size = (w, h);
                     }
                     let states =
                         (xdg_toplevel::State::Maximized as u32).to_ne_bytes().to_vec();
-                    resource.configure(ow as i32, oh as i32, states);
+                    resource.configure(w as i32, h as i32, states);
                 }
             }
             xdg_toplevel::Request::UnsetMaximized => {
                 if let Some(&wid) = state.xdg_surface_window_map.get(&data.xdg_surface_id) {
-                    let pos = state.allocate_window_position();
+                    let reserved = state.layer_shell.reserved_regions(state.output_size);
+                    let layout = state
+                        .layout_engine
+                        .default_position((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT), &reserved);
                     if let Some(w) = state.windows.get_mut(wid) {
-                        w.size = (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
-                        w.position = pos;
+                        w.size = layout.size;
+                        w.position = layout.position;
                     }
-                    resource.configure(DEFAULT_WINDOW_WIDTH as i32, DEFAULT_WINDOW_HEIGHT as i32, vec![]);
+                    resource.configure(layout.size.0 as i32, layout.size.1 as i32, vec![]);
                 }
             }
             xdg_toplevel::Request::SetMinimized => {
@@ -206,6 +218,13 @@ impl Dispatch<xdg_toplevel::XdgToplevel, XdgToplevelData> for CompositorState {
                         w.mapped = false;
                     }
                     state.focus_stack.remove(wid);
+                    if state.keyboard_focus == Some(wid) {
+                        let next = state.focus_stack.focused();
+                        crate::input::set_keyboard_focus(state, next);
+                    }
+                    if state.pointer_focus == Some(wid) {
+                        state.pointer_focus = None;
+                    }
                 }
             }
             xdg_toplevel::Request::Destroy => {

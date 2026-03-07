@@ -1,4 +1,4 @@
-use super::window::WindowId;
+use crate::window::WindowId;
 
 pub struct FocusStack {
     stack: Vec<WindowId>,
@@ -28,5 +28,11 @@ impl FocusStack {
 
     pub fn iter_front_to_back(&self) -> impl Iterator<Item = WindowId> + '_ {
         self.stack.iter().rev().copied()
+    }
+}
+
+impl Default for FocusStack {
+    fn default() -> Self {
+        Self::new()
     }
 }
