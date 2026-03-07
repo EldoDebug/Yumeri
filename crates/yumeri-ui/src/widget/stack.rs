@@ -1,11 +1,13 @@
-use yumeri_types::Color;
-
-use crate::element::{Element, ElementKind, WidgetElement, WidgetProps, WidgetType};
-use crate::style::{Dimension, Edges, Position, Style};
+use crate::callback::AnyCallback;
+use crate::element::{Element, ElementKind};
+use crate::event::EventKind;
+use crate::style::{Edges, Position, Style};
 
 pub struct Stack {
     style: Style,
     children: Vec<Element>,
+    event_handlers: Vec<(EventKind, AnyCallback)>,
+    focusable: bool,
 }
 
 impl Stack {
@@ -13,38 +15,17 @@ impl Stack {
         Self {
             style: Style::default(),
             children: Vec::new(),
+            event_handlers: Vec::new(),
+            focusable: false,
         }
     }
 
-    pub fn child(mut self, child: impl Into<Element>) -> Self {
-        self.children.push(child.into());
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
         self
     }
 
-    pub fn children(mut self, children: impl IntoIterator<Item = impl Into<Element>>) -> Self {
-        self.children.extend(children.into_iter().map(Into::into));
-        self
-    }
-
-    pub fn width(mut self, w: impl Into<Dimension>) -> Self {
-        self.style.width = w.into();
-        self
-    }
-
-    pub fn height(mut self, h: impl Into<Dimension>) -> Self {
-        self.style.height = h.into();
-        self
-    }
-
-    pub fn padding(mut self, p: f32) -> Self {
-        self.style.padding = Edges::all(p);
-        self
-    }
-
-    pub fn background(mut self, color: Color) -> Self {
-        self.style.background = Some(color);
-        self
-    }
+    layout_widget_methods!();
 }
 
 impl Default for Stack {
@@ -53,26 +34,8 @@ impl Default for Stack {
     }
 }
 
-impl From<Stack> for Element {
-    fn from(s: Stack) -> Self {
-        // Stack children should all be position: absolute so they overlap
-        let children: Vec<Element> = s.children;
+impl_into_element!(Stack, Stack);
 
-        Element {
-            key: None,
-            kind: ElementKind::Widget(WidgetElement {
-                widget_type: WidgetType::Stack,
-                style: s.style,
-                props: WidgetProps::default(),
-                children,
-                event_handlers: Vec::new(),
-                focusable: false,
-            }),
-        }
-    }
-}
-
-// Helper to wrap a child as absolute positioned
 #[allow(dead_code)]
 pub fn absolute(child: impl Into<Element>) -> Element {
     let mut elem = child.into();

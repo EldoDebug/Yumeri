@@ -7,7 +7,6 @@ use crate::tree::{UiNode, UiNodeId, UiTree};
 
 const DEFAULT_FONT_SIZE: f32 = 16.0;
 const DEFAULT_LINE_HEIGHT_FACTOR: f32 = 1.25;
-const DEFAULT_BUTTON_BG: Color = Color { r: 0.25, g: 0.46, b: 0.85, a: 1.0 };
 
 pub(crate) fn sync_to_scene(
     tree: &mut UiTree,
@@ -231,11 +230,6 @@ fn sync_node_recursive(
                 scene_id,
                 Color::rgba(bg.r, bg.g, bg.b, bg.a * info.opacity),
             );
-        } else if info.widget_type == WidgetType::Button {
-            scene.set_color(
-                scene_id,
-                Color::rgba(DEFAULT_BUTTON_BG.r, DEFAULT_BUTTON_BG.g, DEFAULT_BUTTON_BG.b, info.opacity),
-            );
         } else {
             scene.set_color(scene_id, Color::rgba(0.0, 0.0, 0.0, 0.0));
         }
@@ -337,10 +331,6 @@ fn needs_visual(widget_type: WidgetType, background: Option<Color>, border_width
         }
         WidgetType::Stack => background.is_some(),
         WidgetType::Text => false,
-        WidgetType::Button => true,
         WidgetType::Image => true,
-        WidgetType::TextInput => true,
-        WidgetType::Checkbox => true,
-        WidgetType::ScrollView => false,
     }
 }

@@ -34,14 +34,20 @@ impl Component for TodoList {
                     .color(Color::WHITE),
             )
             .child(
-                Button::new("Add Item")
+                Container::new()
+                    .padding_symmetric(16.0, 8.0)
+                    .background(Color::rgb(0.25, 0.46, 0.85))
+                    .corner_radius(6.0)
+                    .align_items(Align::Center)
+                    .justify_content(Justify::Center)
                     .on_click(ctx.callback(|this: &mut Self, _| {
                         this.items.push(TodoItem {
                             text: format!("Task #{}", this.next_id),
                             done: false,
                         });
                         this.next_id += 1;
-                    })),
+                    }))
+                    .child(Text::new("Add Item").font_size(16.0).color(Color::WHITE)),
             );
 
         for (i, item) in self.items.iter().enumerate() {
@@ -51,17 +57,31 @@ impl Component for TodoList {
                 Color::rgb(0.2, 0.2, 0.24)
             };
 
+            let checkbox_bg = if item.done {
+                Color::rgb(0.25, 0.46, 0.85)
+            } else {
+                Color::rgb(0.2, 0.2, 0.24)
+            };
+            let check_mark = if item.done { "\u{2713}" } else { "" };
+
             col = col.child(
                 Row::new()
                     .gap(8.0)
                     .align_items(Align::Center)
                     .child(
-                        Checkbox::new(item.done)
-                            .on_toggle(ctx.callback(move |this: &mut Self, _| {
+                        Container::new()
+                            .width(Dimension::Px(20.0))
+                            .height(Dimension::Px(20.0))
+                            .background(checkbox_bg)
+                            .corner_radius(4.0)
+                            .align_items(Align::Center)
+                            .justify_content(Justify::Center)
+                            .on_click(ctx.callback(move |this: &mut Self, _| {
                                 if let Some(item) = this.items.get_mut(i) {
                                     item.done = !item.done;
                                 }
-                            })),
+                            }))
+                            .child(Text::new(check_mark).font_size(14.0).color(Color::WHITE)),
                     )
                     .child(
                         Text::new(&item.text)
@@ -73,14 +93,18 @@ impl Component for TodoList {
                             }),
                     )
                     .child(
-                        Button::new("Delete")
+                        Container::new()
+                            .padding_symmetric(16.0, 8.0)
+                            .background(Color::rgb(0.7, 0.2, 0.2))
+                            .corner_radius(6.0)
+                            .align_items(Align::Center)
+                            .justify_content(Justify::Center)
                             .on_click(ctx.callback(move |this: &mut Self, _| {
                                 if i < this.items.len() {
                                     this.items.remove(i);
                                 }
                             }))
-                            .background(Color::rgb(0.7, 0.2, 0.2))
-                            .font_size(12.0),
+                            .child(Text::new("Delete").font_size(12.0).color(Color::WHITE)),
                     )
                     .background(bg)
                     .corner_radius(4.0)

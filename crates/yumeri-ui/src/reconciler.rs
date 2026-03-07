@@ -288,7 +288,7 @@ mod tests {
     use crate::element::*;
     use crate::style::Style;
     use crate::view_ctx::ViewCtx;
-    use crate::widget::{Column, Text, Button};
+    use crate::widget::{Column, Text, Container};
 
     struct TestComponent {
         count: i32,
@@ -299,10 +299,11 @@ mod tests {
             Column::new()
                 .child(Text::new(format!("Count: {}", self.count)))
                 .child(
-                    Button::new("Click")
+                    Container::new()
                         .on_click(ctx.callback(|this: &mut Self, _| {
                             this.count += 1;
-                        })),
+                        }))
+                        .child(Text::new("Click")),
                 )
                 .into()
         }
@@ -314,8 +315,8 @@ mod tests {
         mount_root_component(&mut tree, TestComponent { count: 0 });
 
         assert!(tree.root.is_some());
-        // Root + Column + Text + Button = at least 4 nodes
-        assert!(tree.nodes.len() >= 3);
+        // Root (component container) + Column + Text + Container + Text = 5 nodes
+        assert!(tree.nodes.len() >= 5);
     }
 
     #[test]

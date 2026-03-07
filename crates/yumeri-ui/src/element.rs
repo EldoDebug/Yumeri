@@ -70,16 +70,12 @@ pub enum WidgetType {
     Row,
     Stack,
     Text,
-    Button,
     Image,
-    TextInput,
-    Checkbox,
-    ScrollView,
 }
 
 impl WidgetType {
     pub fn is_text_bearing(self) -> bool {
-        matches!(self, Self::Text | Self::Button | Self::TextInput)
+        matches!(self, Self::Text)
     }
 }
 
@@ -90,8 +86,6 @@ pub struct WidgetProps {
     pub line_height: Option<f32>,
     pub text_color: Option<Color>,
     pub texture_id: Option<TextureId>,
-    pub placeholder: Option<String>,
-    pub checked: Option<bool>,
     pub scroll_offset: Option<[f32; 2]>,
     pub max_width: Option<f32>,
 }

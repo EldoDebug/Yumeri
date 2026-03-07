@@ -3340,6 +3340,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "yumeri-components"
+version = "0.1.0"
+dependencies = [
+ "yumeri-types",
+ "yumeri-ui",
+]
+
+[[package]]
 name = "yumeri-font"
 version = "0.1.0"
 dependencies = [

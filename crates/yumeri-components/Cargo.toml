@@ -1,0 +1,8 @@
+[package]
+name = "yumeri-components"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+yumeri-ui = { version = "0.1.0", path = "../yumeri-ui" }
+yumeri-types = { version = "0.1.0", path = "../yumeri-types" }

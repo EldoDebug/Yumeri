@@ -30,25 +30,41 @@ impl Component for Counter {
                 Row::new()
                     .gap(12.0)
                     .child(
-                        Button::new("Increment")
+                        Container::new()
+                            .padding_symmetric(16.0, 8.0)
+                            .background(Color::rgb(0.25, 0.46, 0.85))
+                            .corner_radius(6.0)
+                            .align_items(Align::Center)
+                            .justify_content(Justify::Center)
                             .on_click(ctx.callback(|this: &mut Self, _| {
                                 this.count += 1;
-                            })),
+                            }))
+                            .child(Text::new("Increment").font_size(16.0).color(Color::WHITE)),
                     )
                     .child(
-                        Button::new("Decrement")
+                        Container::new()
+                            .padding_symmetric(16.0, 8.0)
+                            .background(Color::rgb(0.8, 0.3, 0.3))
+                            .corner_radius(6.0)
+                            .align_items(Align::Center)
+                            .justify_content(Justify::Center)
                             .on_click(ctx.callback(|this: &mut Self, _| {
                                 this.count -= 1;
                             }))
-                            .background(Color::rgb(0.8, 0.3, 0.3)),
+                            .child(Text::new("Decrement").font_size(16.0).color(Color::WHITE)),
                     ),
             )
             .child(
-                Button::new("Reset")
+                Container::new()
+                    .padding_symmetric(16.0, 8.0)
+                    .background(Color::rgb(0.3, 0.3, 0.3))
+                    .corner_radius(6.0)
+                    .align_items(Align::Center)
+                    .justify_content(Justify::Center)
                     .on_click(ctx.callback(|this: &mut Self, _| {
                         this.count = 0;
                     }))
-                    .background(Color::rgb(0.3, 0.3, 0.3)),
+                    .child(Text::new("Reset").font_size(16.0).color(Color::WHITE)),
             )
             .into()
     }
