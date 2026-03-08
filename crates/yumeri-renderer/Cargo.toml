@@ -21,6 +21,7 @@ thiserror = "2"
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-image = { version = "0.1.0", path = "../yumeri-image" }
 yumeri-live2d = { version = "0.1.0", path = "../yumeri-live2d", optional = true }
+yumeri-threading = { version = "0.1.0", path = "../yumeri-threading" }
 yumeri-types = { version = "0.1.0", path = "../yumeri-types" }
 yumeri-video = { version = "0.1.0", path = "../yumeri-video" }
 

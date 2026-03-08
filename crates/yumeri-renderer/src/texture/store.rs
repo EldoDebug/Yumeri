@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc;
 
 use ash::vk;
 use gpu_allocator::MemoryLocation;
 use slotmap::SlotMap;
+use yumeri_threading::{Task, TaskStatus, ThreadPool};
 
 use super::gpu_texture::GpuTexture;
 use super::TextureId;
@@ -43,8 +43,7 @@ pub struct TextureStore {
     // Retired images kept alive until descriptors are flushed
     retired_images: Vec<Image>,
 
-    receiver: mpsc::Receiver<(TextureId, std::result::Result<yumeri_image::Image, String>)>,
-    sender: mpsc::Sender<(TextureId, std::result::Result<yumeri_image::Image, String>)>,
+    pending_loads: Vec<(TextureId, Task<std::result::Result<yumeri_image::Image, String>>)>,
 }
 
 impl TextureStore {
@@ -92,8 +91,6 @@ impl TextureStore {
 
         let default_sampler = create_sampler(gpu)?;
 
-        let (sender, receiver) = mpsc::channel();
-
         let mut store = Self {
             textures: SlotMap::with_key(),
             path_cache: HashMap::new(),
@@ -107,8 +104,7 @@ impl TextureStore {
             dirty: false,
             device: device.clone(),
             retired_images: Vec::new(),
-            receiver,
-            sender,
+            pending_loads: Vec::new(),
         };
 
         store.create_placeholder(gpu)?;
@@ -201,7 +197,7 @@ impl TextureStore {
         Ok(())
     }
 
-    pub fn load(&mut self, gpu: &GpuContext, path: impl Into<PathBuf>) -> TextureId {
+    pub fn load(&mut self, gpu: &GpuContext, pool: &ThreadPool, path: impl Into<PathBuf>) -> TextureId {
         let path = path.into();
         if let Some(&id) = self.path_cache.get(&path) {
             return id;
@@ -211,8 +207,6 @@ impl TextureStore {
             .allocate_descriptor_index()
             .expect("texture limit exceeded during load");
 
-        // Create a placeholder entry that shares the placeholder's view via a 1x1 upload.
-        // We create a minimal image so this entry owns its own Image resource for clean drop.
         let placeholder_image =
             upload_image_to_gpu(gpu, 1, 1, &[255, 255, 255, 255]).expect("placeholder upload");
 
@@ -227,42 +221,61 @@ impl TextureStore {
         self.path_cache.insert(path.clone(), id);
         self.dirty = true;
 
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let result = yumeri_image::Image::load(&path).map_err(|e| e.to_string());
-            let _ = sender.send((id, result));
+        let task = pool.spawn_task(move || {
+            yumeri_image::Image::load(&path).map_err(|e| e.to_string())
         });
+        self.pending_loads.push((id, task));
 
         id
     }
 
     pub fn process_pending(&mut self, gpu: &GpuContext) {
-        while let Ok((id, result)) = self.receiver.try_recv() {
-            let Ok(img) = result else {
-                log::error!("Failed to load texture: {}", result.unwrap_err());
-                continue;
-            };
+        let mut i = 0;
+        while i < self.pending_loads.len() {
+            self.pending_loads[i].1.poll();
+            match self.pending_loads[i].1.status() {
+                TaskStatus::Ready => {
+                    let (id, mut task) = self.pending_loads.swap_remove(i);
+                    let result = task.take().unwrap();
 
-            let rgba = match ensure_rgba8(&img) {
-                Ok(converted) => converted,
-                Err(e) => {
-                    log::error!("Failed to convert texture to RGBA8: {e}");
-                    continue;
+                    let img = match result {
+                        Ok(img) => img,
+                        Err(e) => {
+                            log::error!("Failed to load texture: {e}");
+                            continue;
+                        }
+                    };
+
+                    let rgba = match ensure_rgba8(&img) {
+                        Ok(converted) => converted,
+                        Err(e) => {
+                            log::error!("Failed to convert texture to RGBA8: {e}");
+                            continue;
+                        }
+                    };
+
+                    let image =
+                        match upload_image_to_gpu(gpu, rgba.width(), rgba.height(), rgba.data()) {
+                            Ok(img) => img,
+                            Err(e) => {
+                                log::error!("Failed to upload texture to GPU: {e}");
+                                continue;
+                            }
+                        };
+
+                    if let Some(gpu_tex) = self.textures.get_mut(id) {
+                        let old_image = std::mem::replace(&mut gpu_tex.image, image);
+                        self.retired_images.push(old_image);
+                        self.dirty = true;
+                    }
                 }
-            };
-
-            let image = match upload_image_to_gpu(gpu, rgba.width(), rgba.height(), rgba.data()) {
-                Ok(img) => img,
-                Err(e) => {
-                    log::error!("Failed to upload texture to GPU: {e}");
-                    continue;
+                TaskStatus::Failed => {
+                    let (id, _) = self.pending_loads.swap_remove(i);
+                    log::error!("texture load task failed for {id:?}");
                 }
-            };
-
-            if let Some(gpu_tex) = self.textures.get_mut(id) {
-                let old_image = std::mem::replace(&mut gpu_tex.image, image);
-                self.retired_images.push(old_image);
-                self.dirty = true;
+                TaskStatus::Pending => {
+                    i += 1;
+                }
             }
         }
     }
@@ -311,7 +324,7 @@ impl TextureStore {
         self.dirty = false;
     }
 
-    /// Record a staging buffer → image copy on the given command buffer.
+    /// Record a staging buffer -> image copy on the given command buffer.
     /// Used for streaming video frames without per-frame GPU synchronization.
     pub fn record_image_upload(
         &self,
@@ -327,7 +340,7 @@ impl TextureStore {
         let image = gpu_tex.image.raw();
 
         unsafe {
-            // SHADER_READ_ONLY → TRANSFER_DST
+            // SHADER_READ_ONLY -> TRANSFER_DST
             let barrier = vk::ImageMemoryBarrier::default()
                 .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
@@ -379,7 +392,7 @@ impl TextureStore {
                 &[region],
             );
 
-            // TRANSFER_DST → SHADER_READ_ONLY
+            // TRANSFER_DST -> SHADER_READ_ONLY
             let barrier = vk::ImageMemoryBarrier::default()
                 .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
@@ -449,6 +462,7 @@ impl TextureStore {
 
     pub fn destroy(&mut self) {
         self.retired_images.clear();
+        self.pending_loads.clear();
         self.textures.clear();
         unsafe {
             self.device.destroy_sampler(self.default_sampler, None);

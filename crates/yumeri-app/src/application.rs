@@ -7,6 +7,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::WindowId;
 use yumeri_renderer::GpuContext;
+use yumeri_threading::ThreadPool;
 
 use crate::delegate::{AppContext, AppDelegate, CloseResponse};
 use crate::error::AppError;
@@ -61,6 +62,7 @@ impl ApplicationBuilder {
             pending_builders: self.initial_windows,
             requests: Vec::new(),
             gpu_context: None,
+            pool: ThreadPool::with_default_size(),
             target_frame_duration,
             last_frame_time: Instant::now(),
         };
@@ -83,6 +85,7 @@ struct Runner {
     pending_builders: Vec<WindowBuilder>,
     requests: Vec<AppRequest>,
     gpu_context: Option<GpuContext>,
+    pool: ThreadPool,
     target_frame_duration: Option<Duration>,
     last_frame_time: Instant,
 }
@@ -203,6 +206,7 @@ impl Runner {
                 let mut ui_ctx = rs.setup_ui_context(
                     scene,
                     gpu,
+                    &self.pool,
                     (surface_size.width, surface_size.height),
                 );
                 d.on_ui_setup(&mut ui_ctx);
@@ -348,6 +352,7 @@ impl ApplicationHandler for Runner {
                         if let (Some(gpu), Some(rs)) = (&self.gpu_context, &mut render_state) {
                             let result = rs.render_frame(
                                 gpu,
+                                &self.pool,
                                 |ctx| {
                                     d.on_render2d(ctx);
                                 },

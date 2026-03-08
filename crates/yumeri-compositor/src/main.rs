@@ -66,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         backend,
         gpu,
         render_state,
+        pool: yumeri_threading::ThreadPool::with_default_size(),
 
         surfaces: HashMap::new(),
         shm_pools: HashMap::new(),

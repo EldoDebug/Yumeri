@@ -7,6 +7,7 @@ use wayland_server::backend::ObjectId;
 use wayland_server::Resource;
 use yumeri_renderer::{GpuContext, TextureId, WindowRenderState};
 use yumeri_shell::LayerShell;
+use yumeri_threading::ThreadPool;
 use yumeri_wm::{FocusStack, LayoutEngine, WindowId};
 
 use crate::backend::WaylandBackend;
@@ -28,6 +29,7 @@ pub struct CompositorState {
     pub backend: WaylandBackend,
     pub gpu: GpuContext,
     pub render_state: WindowRenderState,
+    pub pool: ThreadPool,
 
     pub surfaces: HashMap<ObjectId, SurfaceState>,
     pub shm_pools: HashMap<ObjectId, ShmPoolState>,

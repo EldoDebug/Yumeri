@@ -13,6 +13,7 @@ yumeri-shell = { path = "../yumeri-shell" }
 yumeri-desktop = { path = "../yumeri-desktop" }
 yumeri-renderer = { path = "../yumeri-renderer" }
 yumeri-image = { path = "../yumeri-image" }
+yumeri-threading = { path = "../yumeri-threading" }
 yumeri-types = { path = "../yumeri-types" }
 
 wayland-server = "0.31"

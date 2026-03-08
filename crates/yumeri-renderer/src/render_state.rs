@@ -1,5 +1,6 @@
 use ash::vk;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use yumeri_threading::ThreadPool;
 
 use crate::context::RenderContext2D;
 use crate::error::{RendererError, Result};
@@ -92,6 +93,7 @@ impl WindowRenderState {
     pub fn render_frame(
         &mut self,
         gpu: &GpuContext,
+        pool: &ThreadPool,
         on_render2d: impl FnOnce(&mut RenderContext2D),
         on_custom: Option<&mut dyn FnMut(&mut RenderGraphBuilder, ResourceId)>,
         ui_scene: Option<&mut Scene>,
@@ -129,6 +131,7 @@ impl WindowRenderState {
                 texture_store: store,
                 glyph_cache: gc,
                 gpu,
+                pool,
                 surface_size: (extent.width, extent.height),
                 video_textures: &mut self.video_textures,
                 frame_index,
@@ -218,11 +221,12 @@ impl WindowRenderState {
         &'a mut self,
         scene: &'a mut Scene,
         gpu: &'a GpuContext,
+        pool: &'a ThreadPool,
         surface_size: (u32, u32),
     ) -> crate::ui::UiContext<'a> {
         match (&mut self.texture_store, &mut self.glyph_cache) {
             (Some(store), Some(gc)) => {
-                crate::ui::UiContext::with_textures(scene, store, gc, gpu, surface_size)
+                crate::ui::UiContext::with_textures(scene, store, gc, gpu, pool, surface_size)
             }
             _ => crate::ui::UiContext::new(scene, surface_size),
         }

@@ -8,10 +8,12 @@ use winit::window::{Window, WindowAttributes, WindowId};
 use yumeri_live2d::{Live2DModel, MotionPriority, StdFsLoader};
 use yumeri_renderer::live2d::{coords, Live2DRenderer};
 use yumeri_renderer::{GpuContext, SwapchainConfig, WindowRenderState};
+use yumeri_threading::ThreadPool;
 
 struct App {
     window: Option<&'static Window>,
     state: Option<State>,
+    pool: ThreadPool,
     last_frame: Instant,
     cursor_pos: Option<(f64, f64)>,
     captured: bool,
@@ -38,6 +40,7 @@ impl App {
         Self {
             window: None,
             state: None,
+            pool: ThreadPool::with_default_size(),
             last_frame: Instant::now(),
             cursor_pos: None,
             captured: false,
@@ -162,6 +165,7 @@ impl ApplicationHandler for App {
 
                 let result = state.render_state.render_frame(
                     gpu,
+                    &self.pool,
                     |_ctx| {},
                     Some(&mut |builder, backbuffer| {
                         if let Err(e) =

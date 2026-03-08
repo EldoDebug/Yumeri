@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use yumeri_threading::ThreadPool;
+
 use super::node::NodeId;
 use super::scene::Scene;
 use crate::error::{RendererError, Result};
@@ -11,7 +13,7 @@ use crate::texture::TextureId;
 
 pub struct UiContext<'a> {
     scene: &'a mut Scene,
-    textures: Option<(&'a mut TextureStore, &'a GpuContext)>,
+    textures: Option<(&'a mut TextureStore, &'a GpuContext, &'a ThreadPool)>,
     glyph_cache: Option<&'a mut GlyphCache>,
     surface_size: (u32, u32),
 }
@@ -34,11 +36,12 @@ impl<'a> UiContext<'a> {
         texture_store: &'a mut TextureStore,
         glyph_cache: &'a mut GlyphCache,
         gpu: &'a GpuContext,
+        pool: &'a ThreadPool,
         surface_size: (u32, u32),
     ) -> Self {
         Self {
             scene,
-            textures: Some((texture_store, gpu)),
+            textures: Some((texture_store, gpu, pool)),
             glyph_cache: Some(glyph_cache),
             surface_size,
         }
@@ -57,7 +60,7 @@ impl<'a> UiContext<'a> {
     }
 
     pub fn create_texture(&mut self, image: &yumeri_image::Image) -> Result<TextureId> {
-        let (store, gpu) = self
+        let (store, gpu, _pool) = self
             .textures
             .as_mut()
             .ok_or_else(|| RendererError::Texture("texture store not available".into()))?;
@@ -65,11 +68,11 @@ impl<'a> UiContext<'a> {
     }
 
     pub fn load_texture(&mut self, path: impl Into<PathBuf>) -> Result<TextureId> {
-        let (store, gpu) = self
+        let (store, gpu, pool) = self
             .textures
             .as_mut()
             .ok_or_else(|| RendererError::Texture("texture store not available".into()))?;
-        Ok(store.load(gpu, path))
+        Ok(store.load(gpu, pool, path))
     }
 
     pub fn set_text(
@@ -79,7 +82,7 @@ impl<'a> UiContext<'a> {
         text: &str,
         style: &TextStyle,
     ) -> Result<()> {
-        let (store, gpu) = self
+        let (store, gpu, _pool) = self
             .textures
             .as_mut()
             .ok_or_else(|| RendererError::Texture("texture store not available".into()))?;

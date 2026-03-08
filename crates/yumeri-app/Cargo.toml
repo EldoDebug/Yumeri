@@ -14,6 +14,7 @@ winit = "0.30.13"
 yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
 yumeri-renderer = { version = "0.1.0", path = "../yumeri-renderer" }
+yumeri-threading = { version = "0.1.0", path = "../yumeri-threading" }
 yumeri-types = { version = "0.1.0", path = "../yumeri-types" }
 yumeri-ui = { version = "0.1.0", path = "../yumeri-ui", optional = true }
 

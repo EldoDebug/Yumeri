@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc;
+
+use yumeri_threading::{Task, TaskStatus, ThreadPool};
 
 use crate::audio::Audio;
 use crate::sample_format::SampleFormat;
@@ -24,10 +25,9 @@ struct CacheEntry {
 pub struct AudioCache {
     entries: HashMap<AudioId, CacheEntry>,
     path_index: HashMap<PathBuf, AudioId>,
+    pending_loads: Vec<(AudioId, Task<Result<Audio, String>>)>,
     next_id: u64,
     format: SampleFormat,
-    sender: mpsc::Sender<(AudioId, Result<Audio, String>)>,
-    receiver: mpsc::Receiver<(AudioId, Result<Audio, String>)>,
 }
 
 impl AudioCache {
@@ -36,14 +36,12 @@ impl AudioCache {
     }
 
     pub fn with_format(format: SampleFormat) -> Self {
-        let (sender, receiver) = mpsc::channel();
         Self {
             entries: HashMap::new(),
             path_index: HashMap::new(),
+            pending_loads: Vec::new(),
             next_id: 0,
             format,
-            sender,
-            receiver,
         }
     }
 
@@ -53,13 +51,20 @@ impl AudioCache {
         id
     }
 
-    pub fn load(&mut self, path: impl Into<PathBuf>) -> AudioId {
+    pub fn load(&mut self, pool: &ThreadPool, path: impl Into<PathBuf>) -> AudioId {
         let path = path.into();
         if let Some(&id) = self.path_index.get(&path) {
             return id;
         }
 
         let id = self.alloc_id();
+        self.path_index.insert(path.clone(), id);
+
+        let format = self.format;
+        let task = pool.spawn_task(move || {
+            Audio::load_with(&path, format).map_err(|e| e.to_string())
+        });
+
         self.entries.insert(
             id,
             CacheEntry {
@@ -67,14 +72,7 @@ impl AudioCache {
                 status: LoadStatus::Loading,
             },
         );
-        self.path_index.insert(path.clone(), id);
-
-        let sender = self.sender.clone();
-        let format = self.format;
-        std::thread::spawn(move || {
-            let result = Audio::load_with(&path, format).map_err(|e| e.to_string());
-            let _ = sender.send((id, result));
-        });
+        self.pending_loads.push((id, task));
 
         id
     }
@@ -92,17 +90,35 @@ impl AudioCache {
     }
 
     pub fn process_pending(&mut self) {
-        while let Ok((id, result)) = self.receiver.try_recv() {
-            if let Some(entry) = self.entries.get_mut(&id) {
-                match result {
-                    Ok(audio) => {
-                        entry.audio = Some(audio);
-                        entry.status = LoadStatus::Ready;
+        let mut i = 0;
+        while i < self.pending_loads.len() {
+            self.pending_loads[i].1.poll();
+            match self.pending_loads[i].1.status() {
+                TaskStatus::Ready => {
+                    let (id, mut task) = self.pending_loads.swap_remove(i);
+                    let result = task.take().unwrap();
+                    if let Some(entry) = self.entries.get_mut(&id) {
+                        match result {
+                            Ok(audio) => {
+                                entry.audio = Some(audio);
+                                entry.status = LoadStatus::Ready;
+                            }
+                            Err(e) => {
+                                log::error!("failed to load audio {id:?}: {e}");
+                                entry.status = LoadStatus::Failed;
+                            }
+                        }
                     }
-                    Err(e) => {
-                        log::error!("failed to load audio {:?}: {e}", id);
+                }
+                TaskStatus::Failed => {
+                    let (id, _) = self.pending_loads.swap_remove(i);
+                    log::error!("audio load task {id:?} failed");
+                    if let Some(entry) = self.entries.get_mut(&id) {
                         entry.status = LoadStatus::Failed;
                     }
+                }
+                TaskStatus::Pending => {
+                    i += 1;
                 }
             }
         }
@@ -120,12 +136,14 @@ impl AudioCache {
 
     pub fn remove(&mut self, id: AudioId) {
         self.path_index.retain(|_, v| *v != id);
+        self.pending_loads.retain(|(pid, _)| *pid != id);
         self.entries.remove(&id);
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
         self.path_index.clear();
+        self.pending_loads.clear();
     }
 }
 

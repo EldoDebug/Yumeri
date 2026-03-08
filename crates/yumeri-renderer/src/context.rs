@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use yumeri_font::Font;
+use yumeri_threading::ThreadPool;
 use yumeri_video::VideoHandle;
 
 use crate::error::Result;
@@ -17,6 +18,7 @@ pub struct RenderContext2D<'a> {
     pub(crate) texture_store: &'a mut TextureStore,
     pub(crate) glyph_cache: &'a mut GlyphCache,
     pub(crate) gpu: &'a GpuContext,
+    pub(crate) pool: &'a ThreadPool,
     pub(crate) surface_size: (u32, u32),
     pub(crate) video_textures: &'a mut Vec<VideoTexture>,
     pub(crate) frame_index: usize,
@@ -44,7 +46,11 @@ impl<'a> RenderContext2D<'a> {
     }
 
     pub fn load_texture(&mut self, path: impl Into<PathBuf>) -> TextureId {
-        self.texture_store.load(self.gpu, path)
+        self.texture_store.load(self.gpu, self.pool, path)
+    }
+
+    pub fn thread_pool(&self) -> &ThreadPool {
+        self.pool
     }
 
     pub fn remove_texture(&mut self, id: TextureId) {

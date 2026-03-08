@@ -8,3 +8,4 @@ cpal = "0.15"
 log = "0.4"
 symphonia = { version = "0.5.5", default-features = false, features = ["all"] }
 thiserror = "2"
+yumeri-threading = { version = "0.1.0", path = "../yumeri-threading" }

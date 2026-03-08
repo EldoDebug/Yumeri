@@ -22,7 +22,7 @@ pub fn render_frame(state: &mut CompositorState) {
 
     let removals = std::mem::take(&mut state.pending_texture_removals);
 
-    let result = state.render_state.render_frame(&state.gpu, |ctx| {
+    let result = state.render_state.render_frame(&state.gpu, &state.pool, |ctx| {
         for tex_id in &removals {
             ctx.remove_texture(*tex_id);
         }
@@ -65,7 +65,7 @@ pub fn render_frame(state: &mut CompositorState) {
     let output_size = state.output_size;
     let layer_shell = &state.layer_shell;
 
-    let result = state.render_state.render_frame(&state.gpu, |ctx| {
+    let result = state.render_state.render_frame(&state.gpu, &state.pool, |ctx| {
         // Layer shell: Background + Bottom
         layer_shell.render_below_windows(ctx, output_size);
 

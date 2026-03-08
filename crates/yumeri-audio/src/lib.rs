@@ -214,9 +214,10 @@ mod tests {
         let path = dir.join("dedup.wav");
         std::fs::write(&path, &wav).unwrap();
 
+        let pool = yumeri_threading::ThreadPool::new(2);
         let mut cache = AudioCache::new();
-        let id1 = cache.load(&path);
-        let id2 = cache.load(&path);
+        let id1 = cache.load(&pool, &path);
+        let id2 = cache.load(&pool, &path);
         assert_eq!(id1, id2);
 
         std::fs::remove_file(&path).ok();
@@ -255,8 +256,9 @@ mod tests {
         let path = dir.join("async.wav");
         std::fs::write(&path, &wav).unwrap();
 
+        let pool = yumeri_threading::ThreadPool::new(2);
         let mut cache = AudioCache::new();
-        let id = cache.load(&path);
+        let id = cache.load(&pool, &path);
         assert_eq!(cache.status(id), LoadStatus::Loading);
 
         std::thread::sleep(std::time::Duration::from_millis(500));
