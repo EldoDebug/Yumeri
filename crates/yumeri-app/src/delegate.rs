@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton};
+use winit::dpi::PhysicalSize;
 use winit::window::WindowId;
+use yumeri_input::InputEvent;
 use yumeri_renderer::RenderContext2D;
 use yumeri_renderer::ui::UiContext;
 
@@ -47,20 +47,8 @@ pub trait WindowDelegate {
         let _ = ctx;
     }
 
-    fn on_key_input(&mut self, ctx: &mut WindowContext, event: &KeyEvent, is_pressed: bool) {
-        let _ = (ctx, event, is_pressed);
-    }
-
-    fn on_mouse_input(&mut self, ctx: &mut WindowContext, state: ElementState, button: MouseButton) {
-        let _ = (ctx, state, button);
-    }
-
-    fn on_cursor_moved(&mut self, ctx: &mut WindowContext, position: PhysicalPosition<f64>) {
-        let _ = (ctx, position);
-    }
-
-    fn on_focused(&mut self, ctx: &mut WindowContext, focused: bool) {
-        let _ = (ctx, focused);
+    fn on_input(&mut self, ctx: &mut WindowContext, event: &InputEvent) {
+        let _ = (ctx, event);
     }
 
     fn on_scale_factor_changed(&mut self, ctx: &mut WindowContext, scale_factor: f64) {

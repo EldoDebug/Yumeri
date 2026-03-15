@@ -11,26 +11,9 @@ use crate::error::{Result, WmError};
 
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
+    Input(yumeri_input::InputEvent),
+    Resize { width: u32, height: u32 },
     FrameRequest,
-    KeyInput {
-        keycode: u32,
-        pressed: bool,
-        time: u32,
-    },
-    PointerMotion {
-        x: f64,
-        y: f64,
-        time: u32,
-    },
-    PointerButton {
-        button: u32,
-        pressed: bool,
-        time: u32,
-    },
-    Resize {
-        width: u32,
-        height: u32,
-    },
     Shutdown,
 }
 
@@ -54,6 +37,7 @@ struct BackendState {
     closed: bool,
     has_keyboard: bool,
     has_pointer: bool,
+    pointer_position: (f64, f64),
 }
 
 impl BackendState {
@@ -72,6 +56,7 @@ impl BackendState {
             closed: false,
             has_keyboard: false,
             has_pointer: false,
+            pointer_position: (0.0, 0.0),
         }
     }
 }
@@ -338,17 +323,27 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for BackendState {
     ) {
         if let wl_keyboard::Event::Key {
             serial: _,
-            time,
+            time: _,
             key,
             state,
         } = event
         {
             let pressed = matches!(state, wayland_client::WEnum::Value(wl_keyboard::KeyState::Pressed));
-            this.events.push_back(BackendEvent::KeyInput {
-                keycode: key,
-                pressed,
-                time,
-            });
+            let btn_state = if pressed {
+                yumeri_input::ButtonState::Pressed
+            } else {
+                yumeri_input::ButtonState::Released
+            };
+            this.events.push_back(BackendEvent::Input(
+                yumeri_input::InputEvent::Keyboard(yumeri_input::KeyboardEvent {
+                    key: yumeri_input::Key::Unidentified,
+                    code: yumeri_input::KeyCode::Other(key),
+                    state: btn_state,
+                    modifiers: yumeri_input::Modifiers::NONE,
+                    text: None,
+                    repeat: false,
+                }),
+            ));
         }
     }
 }
@@ -364,28 +359,39 @@ impl Dispatch<wl_pointer::WlPointer, ()> for BackendState {
     ) {
         match event {
             wl_pointer::Event::Motion {
-                time,
+                time: _,
                 surface_x,
                 surface_y,
             } => {
-                this.events.push_back(BackendEvent::PointerMotion {
-                    x: surface_x,
-                    y: surface_y,
-                    time,
-                });
+                this.pointer_position = (surface_x, surface_y);
+                this.events.push_back(BackendEvent::Input(
+                    yumeri_input::InputEvent::Pointer(yumeri_input::PointerEvent {
+                        kind: yumeri_input::PointerEventKind::Moved,
+                        position: this.pointer_position,
+                        modifiers: yumeri_input::Modifiers::NONE,
+                    }),
+                ));
             }
             wl_pointer::Event::Button {
                 serial: _,
-                time,
+                time: _,
                 button,
                 state,
             } => {
                 let pressed = matches!(state, wayland_client::WEnum::Value(wl_pointer::ButtonState::Pressed));
-                this.events.push_back(BackendEvent::PointerButton {
-                    button,
-                    pressed,
-                    time,
-                });
+                let mb = yumeri_input::MouseButton::from_linux_evdev(button);
+                let kind = if pressed {
+                    yumeri_input::PointerEventKind::ButtonPressed(mb)
+                } else {
+                    yumeri_input::PointerEventKind::ButtonReleased(mb)
+                };
+                this.events.push_back(BackendEvent::Input(
+                    yumeri_input::InputEvent::Pointer(yumeri_input::PointerEvent {
+                        kind,
+                        position: this.pointer_position,
+                        modifiers: yumeri_input::Modifiers::NONE,
+                    }),
+                ));
             }
             _ => {}
         }

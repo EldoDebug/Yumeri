@@ -1,10 +1,14 @@
 use std::time::Duration;
 
+use yumeri_input::{
+    ButtonState, InputEvent, Key, KeyboardEvent, MouseButton, NamedKey, PointerEvent,
+    PointerEventKind,
+};
 use yumeri_renderer::texture::glyph_cache::GlyphCache;
 use yumeri_renderer::ui::Scene;
 
 use crate::component::Component;
-use crate::event::{EventPayload, KeyInfo};
+use crate::event::EventPayload;
 use crate::event::focus::{focus_next, focus_prev};
 use crate::event::hit_test::hit_test;
 use crate::event::propagation::dispatch_event;
@@ -88,41 +92,21 @@ impl<C: Component> UiApp<C> {
         self.tree.set_viewport_size(width as f32, height as f32);
     }
 
-    pub fn on_mouse_click(&mut self, x: f32, y: f32) {
-        if let Some(target) = hit_test(&self.tree, x, y) {
-            let focusable = self
-                .tree
-                .nodes
-                .get(target)
-                .map(|n| n.focusable)
-                .unwrap_or(false);
-            if focusable {
-                self.tree.focus.set_focus(Some(target));
+    pub fn on_input(&mut self, event: &InputEvent) {
+        match event {
+            InputEvent::Keyboard(kb) => {
+                if kb.state == ButtonState::Pressed {
+                    self.handle_key_down(kb);
+                }
             }
-
-            dispatch_event(&mut self.tree, target, &EventPayload::Click);
+            InputEvent::Pointer(ptr) => self.handle_pointer(ptr),
+            InputEvent::FocusChanged(_) => {}
         }
     }
 
-    pub fn on_cursor_moved(&mut self, x: f32, y: f32) {
-        self.tree.cursor_pos = (x, y);
-
-        let new_hovered = hit_test(&self.tree, x, y);
-
-        if new_hovered != self.tree.hovered_node {
-            if let Some(old) = self.tree.hovered_node {
-                dispatch_event(&mut self.tree, old, &EventPayload::MouseLeave);
-            }
-            if let Some(new) = new_hovered {
-                dispatch_event(&mut self.tree, new, &EventPayload::MouseEnter);
-            }
-            self.tree.hovered_node = new_hovered;
-        }
-    }
-
-    pub fn on_key_input(&mut self, key: &str, code: &str, shift: bool, ctrl: bool, alt: bool) {
-        if key == "Tab" {
-            if shift {
+    fn handle_key_down(&mut self, kb: &KeyboardEvent) {
+        if kb.key == Key::Named(NamedKey::Tab) {
+            if kb.modifiers.shift {
                 focus_prev(&mut self.tree);
             } else {
                 focus_next(&mut self.tree);
@@ -130,42 +114,111 @@ impl<C: Component> UiApp<C> {
             return;
         }
 
-        if let Some(focused) = self.tree.focus.focused() {
-            let info = KeyInfo {
-                key: key.to_string(),
-                code: code.to_string(),
-                shift,
-                ctrl,
-                alt,
-            };
-            dispatch_event(
-                &mut self.tree,
-                focused,
-                &EventPayload::KeyDown { key: info },
-            );
+        // Dispatch text input for character keys
+        if let Some(ref text) = kb.text {
+            if !text.is_empty() && !kb.modifiers.ctrl && !kb.modifiers.alt && !kb.modifiers.meta {
+                if let Some(focused) = self.tree.focus.focused() {
+                    dispatch_event(
+                        &mut self.tree,
+                        focused,
+                        &EventPayload::TextInput {
+                            text: text.clone(),
+                        },
+                    );
+                }
+            }
         }
-    }
 
-    pub fn on_text_input(&mut self, text: &str) {
         if let Some(focused) = self.tree.focus.focused() {
             dispatch_event(
                 &mut self.tree,
                 focused,
-                &EventPayload::TextInput {
-                    text: text.to_string(),
+                &EventPayload::KeyDown {
+                    event: kb.clone(),
                 },
             );
         }
     }
 
-    pub fn on_scroll(&mut self, delta_x: f32, delta_y: f32) {
-        let (x, y) = self.tree.cursor_pos;
-        if let Some(target) = hit_test(&self.tree, x, y) {
-            dispatch_event(
-                &mut self.tree,
-                target,
-                &EventPayload::Scroll { delta_x, delta_y },
-            );
+    fn handle_pointer(&mut self, ptr: &PointerEvent) {
+        match &ptr.kind {
+            PointerEventKind::Moved => {
+                let x = ptr.position.0 as f32;
+                let y = ptr.position.1 as f32;
+                self.tree.cursor_pos = (x, y);
+
+                let new_hovered = hit_test(&self.tree, x, y);
+
+                if new_hovered != self.tree.hovered_node {
+                    if let Some(old) = self.tree.hovered_node {
+                        dispatch_event(&mut self.tree, old, &EventPayload::MouseLeave);
+                    }
+                    if let Some(new) = new_hovered {
+                        dispatch_event(&mut self.tree, new, &EventPayload::MouseEnter);
+                    }
+                    self.tree.hovered_node = new_hovered;
+                }
+            }
+            PointerEventKind::ButtonPressed(button) => {
+                let (x, y) = self.tree.cursor_pos;
+                let target = hit_test(&self.tree, x, y);
+
+                if *button == MouseButton::Left {
+                    if let Some(t) = target {
+                        let focusable = self
+                            .tree
+                            .nodes
+                            .get(t)
+                            .map(|n| n.focusable)
+                            .unwrap_or(false);
+                        if focusable {
+                            self.tree.focus.set_focus(Some(t));
+                        }
+
+                        dispatch_event(&mut self.tree, t, &EventPayload::Click);
+                    }
+                }
+
+                if let Some(t) = target {
+                    dispatch_event(
+                        &mut self.tree,
+                        t,
+                        &EventPayload::MouseDown {
+                            x,
+                            y,
+                            button: *button,
+                        },
+                    );
+                }
+            }
+            PointerEventKind::ButtonReleased(button) => {
+                let (x, y) = self.tree.cursor_pos;
+                if let Some(target) = hit_test(&self.tree, x, y) {
+                    dispatch_event(
+                        &mut self.tree,
+                        target,
+                        &EventPayload::MouseUp {
+                            x,
+                            y,
+                            button: *button,
+                        },
+                    );
+                }
+            }
+            PointerEventKind::Scroll { delta_x, delta_y } => {
+                let (x, y) = self.tree.cursor_pos;
+                if let Some(target) = hit_test(&self.tree, x, y) {
+                    dispatch_event(
+                        &mut self.tree,
+                        target,
+                        &EventPayload::Scroll {
+                            delta_x: *delta_x as f32,
+                            delta_y: *delta_y as f32,
+                        },
+                    );
+                }
+            }
+            PointerEventKind::Entered | PointerEventKind::Left => {}
         }
     }
 

@@ -13,6 +13,7 @@ thiserror = "2"
 winit = "0.30.13"
 yumeri-animation = { version = "0.1.0", path = "../yumeri-animation" }
 yumeri-font = { version = "0.1.0", path = "../yumeri-font" }
+yumeri-input = { version = "0.1.0", path = "../yumeri-input" }
 yumeri-renderer = { version = "0.1.0", path = "../yumeri-renderer" }
 yumeri-threading = { version = "0.1.0", path = "../yumeri-threading" }
 yumeri-types = { version = "0.1.0", path = "../yumeri-types" }

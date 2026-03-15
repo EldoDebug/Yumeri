@@ -11,6 +11,7 @@ path = "src/main.rs"
 yumeri-wm = { path = "../yumeri-wm" }
 yumeri-shell = { path = "../yumeri-shell" }
 yumeri-desktop = { path = "../yumeri-desktop" }
+yumeri-input = { path = "../yumeri-input" }
 yumeri-renderer = { path = "../yumeri-renderer" }
 yumeri-image = { path = "../yumeri-image" }
 yumeri-threading = { path = "../yumeri-threading" }

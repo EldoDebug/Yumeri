@@ -102,16 +102,17 @@ impl WindowDelegate for MyWindow {
         // Do NOT call request_redraw() here — that would bypass the FPS limiter.
     }
 
-    fn on_key_input(&mut self, ctx: &mut WindowContext, event: &KeyEvent, is_pressed: bool) {
-        if !is_pressed {
+    fn on_input(&mut self, ctx: &mut WindowContext, event: &InputEvent) {
+        let InputEvent::Keyboard(kb) = event else { return };
+        if !kb.state.is_pressed() {
             return;
         }
 
         let window = ctx.window();
 
-        match event.logical_key {
+        match &kb.key {
             // [F] Toggle fullscreen (borderless)
-            Key::Character(ref c) if c.as_str() == "f" => {
+            Key::Character(c) if c == "f" => {
                 self.fullscreen = !self.fullscreen;
                 if self.fullscreen {
                     window.set_fullscreen(Some(FullscreenMode::Borderless));
@@ -123,7 +124,7 @@ impl WindowDelegate for MyWindow {
             }
 
             // [G] Toggle fullscreen (exclusive)
-            Key::Character(ref c) if c.as_str() == "g" => {
+            Key::Character(c) if c == "g" => {
                 self.fullscreen = !self.fullscreen;
                 if self.fullscreen {
                     window.set_fullscreen(Some(FullscreenMode::Exclusive));
@@ -135,28 +136,28 @@ impl WindowDelegate for MyWindow {
             }
 
             // [T] Toggle always-on-top
-            Key::Character(ref c) if c.as_str() == "t" => {
+            Key::Character(c) if c == "t" => {
                 self.always_on_top = !self.always_on_top;
                 window.set_always_on_top(self.always_on_top);
                 println!("[T] Always on top: {}", self.always_on_top);
             }
 
             // [M] Toggle maximized
-            Key::Character(ref c) if c.as_str() == "m" => {
+            Key::Character(c) if c == "m" => {
                 self.maximized = !self.maximized;
                 window.set_maximized(self.maximized);
                 println!("[M] Maximized: {}", self.maximized);
             }
 
             // [C] Toggle cursor visibility
-            Key::Character(ref c) if c.as_str() == "c" => {
+            Key::Character(c) if c == "c" => {
                 self.cursor_visible = !self.cursor_visible;
                 window.set_cursor_visible(self.cursor_visible);
                 println!("[C] Cursor visible: {}", self.cursor_visible);
             }
 
             // [I] Set a dummy window icon (8x8 red square)
-            Key::Character(ref c) if c.as_str() == "i" => {
+            Key::Character(c) if c == "i" => {
                 let (icon_w, icon_h) = (8u32, 8u32);
                 let mut rgba = Vec::with_capacity((icon_w * icon_h * 4) as usize);
                 for _ in 0..icon_w * icon_h {

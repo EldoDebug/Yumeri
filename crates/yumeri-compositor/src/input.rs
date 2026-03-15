@@ -1,5 +1,6 @@
 use wayland_server::protocol::{wl_keyboard, wl_pointer};
 use wayland_server::Resource;
+use yumeri_input::{InputEvent, KeyboardEvent, PointerEvent, PointerEventKind};
 
 use crate::backend::BackendEvent;
 use crate::compositor::{CompositorState, Grab};
@@ -15,19 +16,16 @@ const MIN_WINDOW_SIZE: i32 = 100;
 
 const WL_POINTER_FRAME_SINCE: u32 = 5;
 
+fn wayland_timestamp() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u32
+}
+
 pub fn handle_backend_event(state: &mut CompositorState, event: BackendEvent) {
     match event {
-        BackendEvent::PointerMotion { x, y, time } => handle_pointer_motion(state, x, y, time),
-        BackendEvent::PointerButton {
-            button,
-            pressed,
-            time,
-        } => handle_pointer_button(state, button, pressed, time),
-        BackendEvent::KeyInput {
-            keycode,
-            pressed,
-            time,
-        } => handle_key_input(state, keycode, pressed, time),
+        BackendEvent::Input(input) => handle_input(state, input),
         BackendEvent::Resize { width, height } => {
             state.output_size = (width, height);
             state.layout_engine.set_output_size(width, height);
@@ -42,7 +40,35 @@ pub fn handle_backend_event(state: &mut CompositorState, event: BackendEvent) {
     }
 }
 
-fn handle_pointer_motion(state: &mut CompositorState, x: f64, y: f64, time: u32) {
+fn handle_input(state: &mut CompositorState, event: InputEvent) {
+    match event {
+        InputEvent::Keyboard(kb) => handle_key_input(state, kb),
+        InputEvent::Pointer(ptr) => handle_pointer(state, ptr),
+        InputEvent::FocusChanged(_) => {}
+    }
+}
+
+fn handle_pointer(state: &mut CompositorState, ptr: PointerEvent) {
+    match &ptr.kind {
+        PointerEventKind::Moved => {
+            handle_pointer_motion(state, ptr.position.0, ptr.position.1);
+        }
+        PointerEventKind::ButtonPressed(button) => {
+            // Convert MouseButton back to linux button code for Wayland protocol
+            let button_code = button.to_linux_evdev();
+            handle_pointer_button(state, button_code, true);
+        }
+        PointerEventKind::ButtonReleased(button) => {
+            let button_code = button.to_linux_evdev();
+            handle_pointer_button(state, button_code, false);
+        }
+        PointerEventKind::Scroll { .. }
+        | PointerEventKind::Entered
+        | PointerEventKind::Left => {}
+    }
+}
+
+fn handle_pointer_motion(state: &mut CompositorState, x: f64, y: f64) {
     state.pointer_x = x;
     state.pointer_y = y;
 
@@ -103,11 +129,11 @@ fn handle_pointer_motion(state: &mut CompositorState, x: f64, y: f64, time: u32)
         }
         state.pointer_focus = new_focus;
     } else if let Some(wid) = state.pointer_focus {
-        send_pointer_motion(state, wid, x, y, time);
+        send_pointer_motion(state, wid, x, y);
     }
 }
 
-fn handle_pointer_button(state: &mut CompositorState, button: u32, pressed: bool, time: u32) {
+fn handle_pointer_button(state: &mut CompositorState, button: u32, pressed: bool) {
     if !pressed {
         if state.grab.is_some() {
             state.grab = None;
@@ -123,13 +149,19 @@ fn handle_pointer_button(state: &mut CompositorState, button: u32, pressed: bool
     }
 
     if let Some(wid) = state.pointer_focus {
-        send_pointer_button(state, wid, button, pressed, time);
+        send_pointer_button(state, wid, button, pressed);
     }
 }
 
-fn handle_key_input(state: &mut CompositorState, keycode: u32, pressed: bool, time: u32) {
+fn handle_key_input(state: &mut CompositorState, kb: KeyboardEvent) {
+    let keycode = match kb.code {
+        yumeri_input::KeyCode::Other(code) => code,
+        _ => 0,
+    };
+    let pressed = kb.state.is_pressed();
+
     if let Some(wid) = state.keyboard_focus {
-        send_key_event(state, wid, keycode, pressed, time);
+        send_key_event(state, wid, keycode, pressed);
     }
 }
 
@@ -197,11 +229,13 @@ fn send_pointer_leave(state: &mut CompositorState, wid: WindowId) {
     }
 }
 
-fn send_pointer_motion(state: &mut CompositorState, wid: WindowId, x: f64, y: f64, time: u32) {
+fn send_pointer_motion(state: &mut CompositorState, wid: WindowId, x: f64, y: f64) {
     let Some(w) = state.windows.get(wid) else { return };
     let sx = x - w.position.0 as f64;
     let sy = y - w.position.1 as f64;
     let target_client = w.surface.client();
+
+    let time = wayland_timestamp();
 
     for ptr in &state.pointers {
         if ptr.client().as_ref() == target_client.as_ref() {
@@ -213,7 +247,7 @@ fn send_pointer_motion(state: &mut CompositorState, wid: WindowId, x: f64, y: f6
     }
 }
 
-fn send_pointer_button(state: &mut CompositorState, wid: WindowId, button: u32, pressed: bool, time: u32) {
+fn send_pointer_button(state: &mut CompositorState, wid: WindowId, button: u32, pressed: bool) {
     let serial = state.next_serial();
     let Some(w) = state.windows.get(wid) else { return };
     let btn_state = if pressed {
@@ -222,6 +256,8 @@ fn send_pointer_button(state: &mut CompositorState, wid: WindowId, button: u32, 
         wl_pointer::ButtonState::Released
     };
     let target_client = w.surface.client();
+
+    let time = wayland_timestamp();
 
     for ptr in &state.pointers {
         if ptr.client().as_ref() == target_client.as_ref() {
@@ -233,7 +269,7 @@ fn send_pointer_button(state: &mut CompositorState, wid: WindowId, button: u32, 
     }
 }
 
-fn send_key_event(state: &mut CompositorState, wid: WindowId, keycode: u32, pressed: bool, time: u32) {
+fn send_key_event(state: &mut CompositorState, wid: WindowId, keycode: u32, pressed: bool) {
     let serial = state.next_serial();
     let Some(w) = state.windows.get(wid) else { return };
     let key_state = if pressed {
@@ -242,6 +278,8 @@ fn send_key_event(state: &mut CompositorState, wid: WindowId, keycode: u32, pres
         wl_keyboard::KeyState::Released
     };
     let target_client = w.surface.client();
+
+    let time = wayland_timestamp();
 
     for kb in &state.keyboards {
         if kb.client().as_ref() == target_client.as_ref() {

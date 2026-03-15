@@ -3363,6 +3363,7 @@ dependencies = [
  "yumeri-animation",
  "yumeri-components",
  "yumeri-font",
+ "yumeri-input",
  "yumeri-renderer",
  "yumeri-template",
  "yumeri-threading",
@@ -3409,6 +3410,7 @@ dependencies = [
  "xkbcommon",
  "yumeri-desktop",
  "yumeri-image",
+ "yumeri-input",
  "yumeri-renderer",
  "yumeri-shell",
  "yumeri-threading",
@@ -3440,6 +3442,10 @@ dependencies = [
  "image",
  "thiserror 2.0.18",
 ]
+
+[[package]]
+name = "yumeri-input"
+version = "0.1.0"
 
 [[package]]
 name = "yumeri-live2d"
@@ -3518,6 +3524,7 @@ dependencies = [
  "yumeri-animation",
  "yumeri-app",
  "yumeri-font",
+ "yumeri-input",
  "yumeri-renderer",
  "yumeri-types",
 ]

@@ -22,17 +22,19 @@ pub enum EventPayload {
     MouseDown {
         x: f32,
         y: f32,
+        button: yumeri_input::MouseButton,
     },
     MouseUp {
         x: f32,
         y: f32,
+        button: yumeri_input::MouseButton,
     },
     MouseEnter,
     MouseLeave,
     Focus,
     Blur,
     KeyDown {
-        key: KeyInfo,
+        event: yumeri_input::KeyboardEvent,
     },
     TextInput {
         text: String,
@@ -58,13 +60,4 @@ impl EventPayload {
             Self::Scroll { .. } => EventKind::Scroll,
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct KeyInfo {
-    pub key: String,
-    pub code: String,
-    pub shift: bool,
-    pub ctrl: bool,
-    pub alt: bool,
 }

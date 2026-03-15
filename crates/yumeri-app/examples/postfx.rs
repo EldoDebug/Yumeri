@@ -109,13 +109,14 @@ impl WindowDelegate for MyWindow {
         ctx.request_redraw();
     }
 
-    fn on_key_input(&mut self, ctx: &mut WindowContext, event: &KeyEvent, is_pressed: bool) {
-        if !is_pressed {
+    fn on_input(&mut self, ctx: &mut WindowContext, event: &InputEvent) {
+        let InputEvent::Keyboard(kb) = event else { return };
+        if !kb.state.is_pressed() {
             return;
         }
-        match event.logical_key.as_ref() {
+        match &kb.key {
             // [G] Toggle grayscale on/off
-            Key::Character("g") => {
+            Key::Character(c) if c == "g" => {
                 let has_effect = ctx
                     .post_effect_chain()
                     .and_then(|c| c.get::<Grayscale>(Grayscale::NAME))
@@ -140,7 +141,7 @@ impl WindowDelegate for MyWindow {
                 }
             }
             // [M] Toggle circular mask
-            Key::Character("m") => {
+            Key::Character(c) if c == "m" => {
                 self.mask_active = !self.mask_active;
                 if self.mask_active {
                     let size = ctx.window().surface_size();

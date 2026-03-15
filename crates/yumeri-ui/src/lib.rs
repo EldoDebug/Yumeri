@@ -20,7 +20,7 @@ pub mod prelude {
     pub use crate::callback::AnyCallback;
     pub use crate::component::Component;
     pub use crate::element::Element;
-    pub use crate::event::{EventKind, EventPayload, KeyInfo};
+    pub use crate::event::{EventKind, EventPayload};
     pub use crate::event_ctx::EventCtx;
     pub use crate::style::{Align, Dimension, Direction, Edges, Justify, Position, Style, Theme};
     pub use crate::template_provider::TemplateProvider;

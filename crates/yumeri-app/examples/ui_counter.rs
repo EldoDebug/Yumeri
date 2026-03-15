@@ -89,15 +89,8 @@ impl WindowDelegate for CounterDelegate {
         ctx.request_redraw();
     }
 
-    fn on_mouse_input(&mut self, _ctx: &mut WindowContext, state: ElementState, button: MouseButton) {
-        if state == ElementState::Pressed && button == MouseButton::Left {
-            let (x, y) = self.ui.tree().cursor_pos();
-            self.ui.on_mouse_click(x, y);
-        }
-    }
-
-    fn on_cursor_moved(&mut self, _ctx: &mut WindowContext, position: PhysicalPosition<f64>) {
-        self.ui.on_cursor_moved(position.x as f32, position.y as f32);
+    fn on_input(&mut self, _ctx: &mut WindowContext, event: &InputEvent) {
+        self.ui.on_input(event);
     }
 
     fn on_resized(&mut self, _ctx: &mut WindowContext, size: PhysicalSize<u32>) {

@@ -55,11 +55,12 @@ impl WindowDelegate for MyWindow {
         self.circle = Some(circle);
     }
 
-    fn on_key_input(&mut self, ctx: &mut WindowContext, event: &KeyEvent, is_pressed: bool) {
-        if !is_pressed {
+    fn on_input(&mut self, ctx: &mut WindowContext, event: &InputEvent) {
+        let InputEvent::Keyboard(kb) = event else { return };
+        if !kb.state.is_pressed() {
             return;
         }
-        if event.physical_key == PhysicalKey::Code(KeyCode::Space) {
+        if kb.code == KeyCode::Space {
             self.toggle = !self.toggle;
             if let Some(scene) = ctx.ui_scene() {
                 if let Some(rect) = self.rect {

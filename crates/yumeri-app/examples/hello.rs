@@ -36,9 +36,11 @@ struct MainWindow;
 impl WindowDelegate for MainWindow {
     fn on_redraw_requested(&mut self, _ctx: &mut WindowContext) {}
 
-    fn on_key_input(&mut self, _ctx: &mut WindowContext, event: &KeyEvent, is_pressed: bool) {
-        if is_pressed {
-            println!("[Main] Key: {:?}", event.logical_key);
+    fn on_input(&mut self, _ctx: &mut WindowContext, event: &InputEvent) {
+        if let InputEvent::Keyboard(kb) = event {
+            if kb.state.is_pressed() {
+                println!("[Main] Key: {:?}", kb.key);
+            }
         }
     }
 }

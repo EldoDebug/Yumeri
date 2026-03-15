@@ -11,6 +11,7 @@ use yumeri_threading::ThreadPool;
 
 use crate::delegate::{AppContext, AppDelegate, CloseResponse};
 use crate::error::AppError;
+use crate::input_conv;
 use crate::window::{FullscreenMode, PresentMode, Window, WindowBuilder, WindowContext, WindowEntry};
 
 /// Top-level application entry point.
@@ -65,6 +66,8 @@ impl ApplicationBuilder {
             pool: ThreadPool::with_default_size(),
             target_frame_duration,
             last_frame_time: Instant::now(),
+            modifiers: winit::event::Modifiers::default(),
+            cursor_position: (0.0, 0.0),
         };
         event_loop.run_app(&mut runner)?;
         Ok(())
@@ -88,6 +91,8 @@ struct Runner {
     pool: ThreadPool,
     target_frame_duration: Option<Duration>,
     last_frame_time: Instant,
+    modifiers: winit::event::Modifiers,
+    cursor_position: (f64, f64),
 }
 
 impl Runner {
@@ -308,6 +313,17 @@ impl ApplicationHandler for Runner {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        // Track modifier state globally
+        if let WindowEvent::ModifiersChanged(new_mods) = &event {
+            self.modifiers = *new_mods;
+            return;
+        }
+
+        // Track cursor position globally
+        if let WindowEvent::CursorMoved { position, .. } = &event {
+            self.cursor_position = (position.x, position.y);
+        }
+
         let Some(entry) = self.windows.get_mut(&window_id) else {
             return;
         };
@@ -374,7 +390,9 @@ impl ApplicationHandler for Runner {
                     _ => {}
                 }
 
-                // Delegate dispatch with shared context
+                // Convert input events
+                let input_event = input_conv::convert_window_event(&event, &self.modifiers, self.cursor_position);
+
                 let entry = self.windows.get(&window_id).unwrap();
                 let mut ctx = WindowContext::new(
                     &entry.window,
@@ -383,28 +401,18 @@ impl ApplicationHandler for Runner {
                     render_state.as_mut(),
                     self.gpu_context.as_ref(),
                 );
-                match event {
-                    WindowEvent::RedrawRequested => d.on_redraw_requested(&mut ctx),
-                    WindowEvent::Resized(size) => d.on_resized(&mut ctx, size),
-                    WindowEvent::KeyboardInput {
-                        event: key_event, ..
-                    } => {
-                        let is_pressed = key_event.state.is_pressed();
-                        d.on_key_input(&mut ctx, &key_event, is_pressed);
+
+                if let Some(input_event) = input_event {
+                    d.on_input(&mut ctx, &input_event);
+                } else {
+                    match event {
+                        WindowEvent::RedrawRequested => d.on_redraw_requested(&mut ctx),
+                        WindowEvent::Resized(size) => d.on_resized(&mut ctx, size),
+                        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                            d.on_scale_factor_changed(&mut ctx, scale_factor);
+                        }
+                        _ => {}
                     }
-                    WindowEvent::MouseInput { state, button, .. } => {
-                        d.on_mouse_input(&mut ctx, state, button);
-                    }
-                    WindowEvent::CursorMoved { position, .. } => {
-                        d.on_cursor_moved(&mut ctx, position);
-                    }
-                    WindowEvent::Focused(focused) => {
-                        d.on_focused(&mut ctx, focused);
-                    }
-                    WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                        d.on_scale_factor_changed(&mut ctx, scale_factor);
-                    }
-                    _ => {}
                 }
             }
         }

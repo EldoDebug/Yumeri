@@ -284,12 +284,11 @@ impl WindowDelegate for AnimWindow {
         ctx.request_redraw();
     }
 
-    fn on_key_input(&mut self, ctx: &mut WindowContext, event: &KeyEvent, is_pressed: bool) {
-        if !is_pressed {
-            return;
-        }
-        if event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
-            ctx.exit();
+    fn on_input(&mut self, ctx: &mut WindowContext, event: &InputEvent) {
+        if let InputEvent::Keyboard(kb) = event {
+            if kb.state.is_pressed() && kb.code == KeyCode::Escape {
+                ctx.exit();
+            }
         }
     }
 }
