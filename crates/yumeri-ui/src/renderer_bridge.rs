@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use slotmap::SlotMap;
 use yumeri_types::{Color, ShapeType};
 use yumeri_renderer::ui::Scene;
@@ -34,17 +36,32 @@ pub(crate) fn sync_to_scene(
         None => return,
     };
 
-    // Compute taffy layout with text measurement (split borrows: nodes + taffy)
+    // Compute taffy layout with text measurement (split borrows: nodes + taffy).
+    // A per-pass cache avoids redundant shaping when taffy measures the same node
+    // multiple times with identical constraints.
     {
         let nodes = &tree.nodes;
         let taffy = &mut tree.taffy;
         if let Some(ref mut f) = font {
+            let mut measure_cache = HashMap::<(UiNodeId, u32), taffy::prelude::Size<f32>>::new();
             taffy
                 .compute_layout_with_measure(
                     root_taffy,
                     available,
                     |known_dims, avail_space, _node_id, node_ctx, _style| {
-                        measure_text_node(nodes, &mut **f, known_dims, avail_space, node_ctx)
+                        let zero = taffy::prelude::Size { width: 0.0, height: 0.0 };
+                        let ui_id = match &node_ctx {
+                            Some(id) => **id,
+                            None => return zero,
+                        };
+                        let max_width = resolve_max_width(known_dims.width, avail_space.width);
+                        let cache_key = (ui_id, max_width.map(|w| w.to_bits()).unwrap_or(u32::MAX));
+                        if let Some(&cached) = measure_cache.get(&cache_key) {
+                            return cached;
+                        }
+                        let result = measure_text_node(nodes, &mut **f, known_dims, avail_space, node_ctx);
+                        measure_cache.insert(cache_key, result);
+                        result
                     },
                 )
                 .expect("taffy compute_layout");
@@ -93,10 +110,7 @@ fn measure_text_node(
 
     let (font_size, line_height) = resolve_text_metrics(node.props.font_size, node.props.line_height);
 
-    let max_width = known_dimensions.width.or(match available_space.width {
-        taffy::prelude::AvailableSpace::Definite(w) => Some(w),
-        _ => None,
-    });
+    let max_width = resolve_max_width(known_dimensions.width, available_space.width);
 
     let metrics = yumeri_font::TextMetrics::new(font_size, line_height);
     let mut buffer = yumeri_font::TextBuffer::new(font, metrics);
@@ -113,6 +127,16 @@ fn measure_text_node(
         width: known_dimensions.width.unwrap_or(text_width),
         height: known_dimensions.height.unwrap_or(text_height),
     }
+}
+
+fn resolve_max_width(
+    known_width: Option<f32>,
+    avail: taffy::prelude::AvailableSpace,
+) -> Option<f32> {
+    known_width.or(match avail {
+        taffy::prelude::AvailableSpace::Definite(w) => Some(w),
+        _ => None,
+    })
 }
 
 struct TextRenderCtx<'a> {

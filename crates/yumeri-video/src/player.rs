@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 
 use rsmpeg::avcodec::AVCodecContext;
 use rsmpeg::avutil::AVFrame;
@@ -82,6 +82,8 @@ impl VideoPlayer {
             height,
             frame_rate,
             seek_target: AtomicI64::new(SEEK_NONE),
+            wake_mutex: Mutex::new(()),
+            wake_condvar: Condvar::new(),
         });
 
         let (frame_tx, frame_rx) = mpsc::sync_channel::<VideoFrame>(FRAME_QUEUE_CAPACITY);
@@ -379,7 +381,10 @@ fn decode_thread(args: DecodeThreadArgs) {
                 clock.pause();
                 was_paused = true;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            // Block on condvar instead of busy-polling with sleep.
+            // 100ms timeout is a safety net; normally woken by notify.
+            let guard = state.wake_mutex.lock().unwrap();
+            let _ = state.wake_condvar.wait_timeout(guard, std::time::Duration::from_millis(100));
             continue;
         }
 
@@ -509,6 +514,8 @@ struct SharedState {
     height: u32,
     frame_rate: f64,
     seek_target: AtomicI64,
+    wake_mutex: Mutex<()>,
+    wake_condvar: Condvar,
 }
 
 /// Handle to a playing video.
@@ -561,6 +568,7 @@ impl VideoControl {
         self.state
             .playback
             .store(PlaybackState::Playing as u8, Ordering::Relaxed);
+        self.state.wake_condvar.notify_one();
         if let Some(ref ah) = self.audio_handle {
             ah.play();
         }
@@ -570,6 +578,7 @@ impl VideoControl {
         self.state
             .playback
             .store(PlaybackState::Paused as u8, Ordering::Relaxed);
+        self.state.wake_condvar.notify_one();
         if let Some(ref ah) = self.audio_handle {
             ah.pause();
         }
@@ -580,6 +589,7 @@ impl VideoControl {
             .playback
             .store(PlaybackState::Stopped as u8, Ordering::Relaxed);
         self.state.position_us.store(0, Ordering::Relaxed);
+        self.state.wake_condvar.notify_one();
         if let Some(ref ah) = self.audio_handle {
             ah.stop();
         }
@@ -588,6 +598,7 @@ impl VideoControl {
     pub fn seek(&self, secs: f64) {
         let us = (secs.max(0.0) * 1_000_000.0) as i64;
         self.state.seek_target.store(us, Ordering::Relaxed);
+        self.state.wake_condvar.notify_one();
     }
 
     pub fn set_looping(&self, looping: bool) {

@@ -31,7 +31,10 @@ pub struct TextureStore {
     next_descriptor_index: u32,
 
     default_sampler: vk::Sampler,
-    placeholder_id: Option<TextureId>,
+    /// Shared view of the 1x1 white placeholder image, used by pending async loads
+    /// to avoid per-request GPU uploads.
+    placeholder_view: vk::ImageView,
+    placeholder_tex_id: Option<TextureId>,
 
     descriptor_pool: vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
@@ -99,7 +102,8 @@ impl TextureStore {
             free_indices: Vec::new(),
             next_descriptor_index: 0,
             default_sampler,
-            placeholder_id: None,
+            placeholder_view: vk::ImageView::null(),
+            placeholder_tex_id: None,
             descriptor_pool,
             descriptor_set_layout,
             descriptor_sets,
@@ -137,17 +141,19 @@ impl TextureStore {
         let white_pixel: [u8; 4] = [255, 255, 255, 255];
         let image = upload_image_to_gpu(gpu, 1, 1, &white_pixel)?;
 
+        self.placeholder_view = image.view();
+
         let desc_idx = self.allocate_descriptor_index()?;
 
         let gpu_tex = GpuTexture {
-            image,
+            image: Some(image),
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
             override_view: None,
         };
 
         let id = self.textures.insert(gpu_tex);
-        self.placeholder_id = Some(id);
+        self.placeholder_tex_id = Some(id);
         self.desc_to_tex.insert(desc_idx, id);
         self.dirty_indices.insert(desc_idx);
         Ok(())
@@ -172,7 +178,7 @@ impl TextureStore {
         let image = upload_image_to_gpu(gpu, width, height, data)?;
         let desc_idx = self.allocate_descriptor_index()?;
         let gpu_tex = GpuTexture {
-            image,
+            image: Some(image),
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
             override_view: None,
@@ -197,13 +203,14 @@ impl TextureStore {
         let new_image = upload_image_to_gpu(gpu, width, height, data)?;
         let gpu_tex = self.textures.get_mut(id).unwrap();
         let desc_idx = gpu_tex.descriptor_index;
-        let old_image = std::mem::replace(&mut gpu_tex.image, new_image);
-        self.retired_images.push(old_image);
+        if let Some(old_image) = gpu_tex.image.replace(new_image) {
+            self.retired_images.push(old_image);
+        }
         self.dirty_indices.insert(desc_idx);
         Ok(())
     }
 
-    pub fn load(&mut self, gpu: &GpuContext, pool: &ThreadPool, path: impl Into<PathBuf>) -> TextureId {
+    pub fn load(&mut self, _gpu: &GpuContext, pool: &ThreadPool, path: impl Into<PathBuf>) -> TextureId {
         let path = path.into();
         if let Some(&id) = self.path_cache.get(&path) {
             return id;
@@ -213,14 +220,12 @@ impl TextureStore {
             .allocate_descriptor_index()
             .expect("texture limit exceeded during load");
 
-        let placeholder_image =
-            upload_image_to_gpu(gpu, 1, 1, &[255, 255, 255, 255]).expect("placeholder upload");
-
+        // Reuse the shared placeholder view instead of uploading a new 1x1 image per request
         let gpu_tex = GpuTexture {
-            image: placeholder_image,
+            image: None,
             sampler: self.default_sampler,
             descriptor_index: desc_idx,
-            override_view: None,
+            override_view: Some(self.placeholder_view),
         };
 
         let id = self.textures.insert(gpu_tex);
@@ -272,8 +277,10 @@ impl TextureStore {
 
                     if let Some(gpu_tex) = self.textures.get_mut(id) {
                         let desc_idx = gpu_tex.descriptor_index;
-                        let old_image = std::mem::replace(&mut gpu_tex.image, image);
-                        self.retired_images.push(old_image);
+                        if let Some(old_image) = gpu_tex.image.replace(image) {
+                            self.retired_images.push(old_image);
+                        }
+                        gpu_tex.override_view = None;
                         self.dirty_indices.insert(desc_idx);
                     }
                 }
@@ -300,11 +307,14 @@ impl TextureStore {
             .filter_map(|&desc_idx| {
                 let tex_id = self.desc_to_tex.get(&desc_idx)?;
                 let gpu_tex = self.textures.get(*tex_id)?;
+                let view = gpu_tex
+                    .override_view
+                    .or_else(|| gpu_tex.image.as_ref().map(|i| i.view()))?;
                 Some((
                     desc_idx,
                     vk::DescriptorImageInfo::default()
                         .sampler(gpu_tex.sampler)
-                        .image_view(gpu_tex.override_view.unwrap_or(gpu_tex.image.view()))
+                        .image_view(view)
                         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
                 ))
             })
@@ -345,7 +355,10 @@ impl TextureStore {
         let Some(gpu_tex) = self.textures.get(id) else {
             return;
         };
-        let image = gpu_tex.image.raw();
+        let Some(ref img) = gpu_tex.image else {
+            return;
+        };
+        let image = img.raw();
 
         unsafe {
             // SHADER_READ_ONLY -> TRANSFER_DST
@@ -448,6 +461,9 @@ impl TextureStore {
     }
 
     pub fn remove(&mut self, id: TextureId) {
+        if self.placeholder_tex_id == Some(id) {
+            return;
+        }
         self.path_cache.retain(|_, v| *v != id);
         if let Some(gpu_tex) = self.textures.remove(id) {
             self.desc_to_tex.remove(&gpu_tex.descriptor_index);

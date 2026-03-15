@@ -211,10 +211,7 @@ impl Scene {
             }
         }
 
-        self.clear_glyph_children(id);
-
         let (layout_glyphs, atlas_id) = shape_and_cache_glyphs(font, text, style, glyph_cache);
-        let mut glyph_child_ids = Vec::with_capacity(layout_glyphs.len());
 
         // Glyph positions from text layout are relative to top-left,
         // but the parent node uses center+half-extents coordinates.
@@ -222,22 +219,61 @@ impl Scene {
         let parent_size = self.nodes.get(id).map(|n| n.size).unwrap_or([0.0, 0.0]);
         let origin = [-parent_size[0], -parent_size[1]];
 
-        for lg in layout_glyphs {
-            let Some(child_id) = self.add_child(id, ShapeType::Rect) else {
-                continue;
-            };
+        let existing_children: Vec<NodeId> = self
+            .nodes
+            .get(id)
+            .map(|n| n.text_glyph_children.clone())
+            .unwrap_or_default();
+        let old_count = existing_children.len();
+        let new_count = layout_glyphs.len();
+        let reuse_count = old_count.min(new_count);
+        let structure_changed = old_count != new_count;
 
-            let texture = atlas_id.map(|id| crate::texture::Texture { id, uv_rect: lg.cached.uv });
+        let mut glyph_child_ids = Vec::with_capacity(new_count);
+
+        for (i, lg) in layout_glyphs.iter().enumerate() {
+            let texture = atlas_id.map(|tid| crate::texture::Texture { id: tid, uv_rect: lg.cached.uv });
             let rect = lg.to_rect(origin, style.color, texture);
 
-            if let Some(child) = self.nodes.get_mut(child_id) {
-                child.position = rect.position;
-                child.size = rect.size;
-                child.color = rect.color;
-                child.texture = rect.texture;
+            if i < reuse_count {
+                // Reuse existing glyph node — update only changed properties
+                let child_id = existing_children[i];
+                if let Some(child) = self.nodes.get_mut(child_id) {
+                    let mut dirty = DirtyFlags::empty();
+                    if child.position != rect.position {
+                        child.position = rect.position;
+                        dirty |= DirtyFlags::TRANSFORM;
+                    }
+                    if child.size != rect.size || child.color != rect.color || child.texture != rect.texture {
+                        child.size = rect.size;
+                        child.color = rect.color;
+                        child.texture = rect.texture;
+                        dirty |= DirtyFlags::VISUAL;
+                    }
+                    if !dirty.is_empty() {
+                        child.dirty |= dirty;
+                        self.dirty_nodes.push(child_id);
+                    }
+                }
+                glyph_child_ids.push(child_id);
+            } else {
+                // Need a new glyph node
+                let Some(child_id) = self.add_child(id, ShapeType::Rect) else {
+                    continue;
+                };
+                if let Some(child) = self.nodes.get_mut(child_id) {
+                    child.position = rect.position;
+                    child.size = rect.size;
+                    child.color = rect.color;
+                    child.texture = rect.texture;
+                }
+                glyph_child_ids.push(child_id);
             }
+        }
 
-            glyph_child_ids.push(child_id);
+        // Remove excess old glyph children
+        for &child_id in &existing_children[reuse_count..] {
+            self.remove(child_id);
         }
 
         if let Some(node) = self.nodes.get_mut(id) {
@@ -245,18 +281,8 @@ impl Scene {
             node.text_fingerprint = fingerprint;
         }
 
-        self.tree_dirty = true;
-    }
-
-    fn clear_glyph_children(&mut self, id: NodeId) {
-        let children = self
-            .nodes
-            .get_mut(id)
-            .map(|n| std::mem::take(&mut n.text_glyph_children))
-            .unwrap_or_default();
-
-        for child_id in children {
-            self.remove(child_id);
+        if structure_changed {
+            self.tree_dirty = true;
         }
     }
 

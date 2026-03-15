@@ -92,12 +92,42 @@ pub(crate) fn compute_text_fingerprint(font: &Font, text: &str, style: &TextStyl
 
 pub(crate) struct LayoutCache {
     entries: HashMap<LayoutCacheKey, Vec<LayoutGlyph>>,
+    insertion_order: Vec<LayoutCacheKey>,
 }
 
 impl LayoutCache {
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            insertion_order: Vec::new(),
+        }
+    }
+
+    fn contains(&self, key: &LayoutCacheKey) -> bool {
+        self.entries.contains_key(key)
+    }
+
+    fn get(&self, key: &LayoutCacheKey) -> Option<&[LayoutGlyph]> {
+        self.entries.get(key).map(|v| v.as_slice())
+    }
+
+    /// Mark a key as recently used (move to back of eviction order).
+    fn touch(&mut self, key: &LayoutCacheKey) {
+        if let Some(pos) = self.insertion_order.iter().position(|k| k == key) {
+            self.insertion_order.remove(pos);
+            self.insertion_order.push(*key);
+        }
+    }
+
+    fn insert(&mut self, key: LayoutCacheKey, value: Vec<LayoutGlyph>) {
+        if self.entries.len() >= MAX_LAYOUT_CACHE_ENTRIES {
+            let half = self.insertion_order.len() / 2;
+            for evicted in self.insertion_order.drain(..half) {
+                self.entries.remove(&evicted);
+            }
+        }
+        if self.entries.insert(key, value).is_none() {
+            self.insertion_order.push(key);
         }
     }
 }
@@ -112,9 +142,10 @@ pub(crate) fn shape_and_cache_glyphs<'a>(
 ) -> (&'a [LayoutGlyph], Option<TextureId>) {
     let key = compute_layout_key(font, text, style);
 
-    if glyph_cache.layout_cache.entries.contains_key(&key) {
+    if glyph_cache.layout_cache.contains(&key) {
+        glyph_cache.layout_cache.touch(&key);
         let atlas_id = glyph_cache.atlas_texture_id();
-        return (&glyph_cache.layout_cache.entries[&key], atlas_id);
+        return (glyph_cache.layout_cache.get(&key).unwrap(), atlas_id);
     }
 
     // Slow path: shape, rasterize, and cache
@@ -158,12 +189,7 @@ pub(crate) fn shape_and_cache_glyphs<'a>(
         });
     }
 
-    // Evict oldest entries if cache is full
-    if glyph_cache.layout_cache.entries.len() >= MAX_LAYOUT_CACHE_ENTRIES {
-        glyph_cache.layout_cache.entries.clear();
-    }
-
-    glyph_cache.layout_cache.entries.insert(key, result);
+    glyph_cache.layout_cache.insert(key, result);
     let atlas_id = glyph_cache.atlas_texture_id();
-    (&glyph_cache.layout_cache.entries[&key], atlas_id)
+    (glyph_cache.layout_cache.get(&key).unwrap(), atlas_id)
 }

@@ -3,6 +3,7 @@ use ash::vk;
 use crate::error::Result;
 
 #[derive(Clone, Copy, Default)]
+#[allow(dead_code)]
 pub(crate) enum BlendMode {
     #[default]
     Alpha,
@@ -94,6 +95,7 @@ pub(crate) struct PipelineBuilder<'a> {
     vertex_attributes: Vec<vk::VertexInputAttributeDescription>,
 }
 
+#[allow(dead_code)]
 impl<'a> PipelineBuilder<'a> {
     pub fn new(
         device: &'a ash::Device,
@@ -123,6 +125,7 @@ impl<'a> PipelineBuilder<'a> {
         self
     }
 
+    #[allow(dead_code)]
     pub fn blend_mode(mut self, mode: BlendMode) -> Self {
         self.blend_mode = mode;
         self

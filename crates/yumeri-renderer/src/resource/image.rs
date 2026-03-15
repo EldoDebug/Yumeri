@@ -95,26 +95,6 @@ impl Image {
         })
     }
 
-    /// Wraps a swapchain image (not owned by us, so allocation is None).
-    pub fn from_swapchain(
-        gpu: &GpuContext,
-        raw_image: vk::Image,
-        format: vk::Format,
-        extent: vk::Extent2D,
-    ) -> Result<Self> {
-        let _ = extent; // extent provided for future use / clarity at call site
-        let view =
-            create_image_view(gpu.ash_device(), raw_image, format, vk::ImageAspectFlags::COLOR)?;
-
-        Ok(Self {
-            image: raw_image,
-            view,
-            allocation: None,
-            device: gpu.ash_device().clone(),
-            allocator: Arc::clone(gpu.allocator()),
-        })
-    }
-
     pub fn raw(&self) -> vk::Image {
         self.image
     }

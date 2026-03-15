@@ -54,7 +54,6 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                             node.props = widget_elem.props;
                             node.event_handlers = widget_elem.event_handlers;
                             node.focusable = widget_elem.focusable;
-                            node.dirty = true;
 
                             let taffy_style = crate::layout::to_taffy_style(&node.style);
                             let taffy_node = node.taffy_node;

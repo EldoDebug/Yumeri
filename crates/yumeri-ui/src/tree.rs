@@ -24,7 +24,6 @@ pub(crate) struct UiNode {
     pub event_handlers: Vec<(EventKind, AnyCallback)>,
     pub component: Option<ComponentBox>,
     pub focusable: bool,
-    pub dirty: bool,
     pub key: Option<ElementKey>,
 }
 
@@ -40,6 +39,7 @@ pub struct UiTree {
     pub(crate) cursor_pos: (f32, f32),
     pub(crate) hovered_node: Option<UiNodeId>,
     pub(crate) pending_scene_removals: Vec<SceneNodeId>,
+    pub(crate) dirty_components: Vec<UiNodeId>,
     pub(crate) template_provider: Option<Box<dyn TemplateProvider>>,
 }
 
@@ -57,6 +57,7 @@ impl UiTree {
             cursor_pos: (0.0, 0.0),
             hovered_node: None,
             pending_scene_removals: Vec::new(),
+            dirty_components: Vec::new(),
             template_provider: None,
         }
     }
@@ -118,7 +119,6 @@ impl UiTree {
             event_handlers: Vec::new(),
             component: None,
             focusable,
-            dirty: true,
             key,
         });
 
@@ -126,19 +126,12 @@ impl UiTree {
             .set_node_context(taffy_node, Some(id))
             .expect("taffy set_node_context");
 
+        // Only set the parent link here; the reconciler sets the
+        // definitive children list (including taffy sync) at the end
+        // of each reconcile pass, so doing it here would be redundant O(n).
         if let Some(parent_id) = parent {
             if let Some(parent_node) = self.nodes.get_mut(parent_id) {
                 parent_node.children.push(id);
-            }
-            if let Some(parent_taffy) = self.nodes.get(parent_id).map(|n| n.taffy_node) {
-                let children: Vec<_> = self.nodes[parent_id]
-                    .children
-                    .iter()
-                    .map(|&c| self.nodes[c].taffy_node)
-                    .collect();
-                self.taffy
-                    .set_children(parent_taffy, &children)
-                    .expect("taffy set_children");
             }
         }
 
@@ -218,7 +211,10 @@ impl UiTree {
                         comp.put_back(inner);
                     }
                 }
-                self.needs_rebuild = true;
+                // Only mark the owning component dirty, not the entire tree
+                if !self.dirty_components.contains(&owner_id) {
+                    self.dirty_components.push(owner_id);
+                }
                 return true;
             }
         }

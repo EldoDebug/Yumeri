@@ -66,17 +66,26 @@ impl<C: Component> UiApp<C> {
         self.tree.animator.update(dt);
         self.tree.animator.gc();
 
-        // Only rebuild when animation values actually changed
+        // Animation change → full rebuild from root (animator doesn't track per-component)
         if self.tree.animator.had_value_change() {
             self.tree.needs_rebuild = true;
         }
 
         // Rebuild dirty components
         if self.tree.needs_rebuild {
+            // Global rebuild: re-render from root
             if let Some(root) = self.tree.root {
                 rebuild_component(&mut self.tree, root);
             }
             self.tree.needs_rebuild = false;
+            self.tree.dirty_components.clear();
+            self.tree.needs_layout = true;
+        } else if !self.tree.dirty_components.is_empty() {
+            // Granular rebuild: only re-render components whose state changed
+            let dirty = std::mem::take(&mut self.tree.dirty_components);
+            for comp_id in dirty {
+                rebuild_component(&mut self.tree, comp_id);
+            }
             self.tree.needs_layout = true;
         }
 
