@@ -41,6 +41,8 @@ pub(crate) struct LayoutGlyph {
     pub y: f32,
     pub cached: CachedGlyph,
     pub is_color: bool,
+    /// Advance width from the original shaped glyph (used for layout measurement).
+    pub advance_width: f32,
 }
 
 impl LayoutGlyph {
@@ -59,9 +61,9 @@ impl LayoutGlyph {
 
 // Hash-based key to avoid per-frame String allocation
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct LayoutCacheKey(u64);
+pub(crate) struct LayoutCacheKey(u64);
 
-fn compute_layout_key(font: &Font, text: &str, style: &TextStyle) -> LayoutCacheKey {
+pub(crate) fn compute_layout_key(font: &Font, text: &str, style: &TextStyle) -> LayoutCacheKey {
     LayoutCacheKey(hash_text_style_core(font, text, style))
 }
 
@@ -90,16 +92,23 @@ pub(crate) fn compute_text_fingerprint(font: &Font, text: &str, style: &TextStyl
     hasher.finish()
 }
 
+struct CachedLayout {
+    glyphs: Vec<LayoutGlyph>,
+    layout_width: f32,
+    layout_height: f32,
+    last_used: u64,
+}
+
 pub(crate) struct LayoutCache {
-    entries: HashMap<LayoutCacheKey, Vec<LayoutGlyph>>,
-    insertion_order: Vec<LayoutCacheKey>,
+    entries: HashMap<LayoutCacheKey, CachedLayout>,
+    generation: u64,
 }
 
 impl LayoutCache {
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
-            insertion_order: Vec::new(),
+            generation: 0,
         }
     }
 
@@ -107,45 +116,70 @@ impl LayoutCache {
         self.entries.contains_key(key)
     }
 
-    fn get(&self, key: &LayoutCacheKey) -> Option<&[LayoutGlyph]> {
-        self.entries.get(key).map(|v| v.as_slice())
+    pub(crate) fn get(&self, key: &LayoutCacheKey) -> Option<(&[LayoutGlyph], f32, f32)> {
+        self.entries
+            .get(key)
+            .map(|e| (e.glyphs.as_slice(), e.layout_width, e.layout_height))
     }
 
-    /// Mark a key as recently used (move to back of eviction order).
+    /// Mark a key as recently used (O(1) via generation counter).
     fn touch(&mut self, key: &LayoutCacheKey) {
-        if let Some(pos) = self.insertion_order.iter().position(|k| k == key) {
-            self.insertion_order.remove(pos);
-            self.insertion_order.push(*key);
+        self.generation += 1;
+        if let Some(entry) = self.entries.get_mut(key) {
+            entry.last_used = self.generation;
         }
     }
 
-    fn insert(&mut self, key: LayoutCacheKey, value: Vec<LayoutGlyph>) {
+    fn insert(
+        &mut self,
+        key: LayoutCacheKey,
+        glyphs: Vec<LayoutGlyph>,
+        layout_width: f32,
+        layout_height: f32,
+    ) {
         if self.entries.len() >= MAX_LAYOUT_CACHE_ENTRIES {
-            let half = self.insertion_order.len() / 2;
-            for evicted in self.insertion_order.drain(..half) {
+            // Evict the least-recently-used half (O(n) via partial sort)
+            let mut by_age: Vec<(LayoutCacheKey, u64)> = self
+                .entries
+                .iter()
+                .map(|(&k, v)| (k, v.last_used))
+                .collect();
+            let half = by_age.len() / 2;
+            by_age.select_nth_unstable_by_key(half, |&(_, age)| age);
+            for &(evicted, _) in &by_age[..half] {
                 self.entries.remove(&evicted);
             }
         }
-        if self.entries.insert(key, value).is_none() {
-            self.insertion_order.push(key);
-        }
+        self.generation += 1;
+        self.entries.insert(
+            key,
+            CachedLayout {
+                glyphs,
+                layout_width,
+                layout_height,
+                last_used: self.generation,
+            },
+        );
     }
 }
 
 use crate::texture::TextureId;
 
+/// Shape text, rasterize glyphs into the atlas, and cache the layout.
+/// Returns (layout_glyphs, atlas_texture_id, layout_height).
 pub(crate) fn shape_and_cache_glyphs<'a>(
     font: &mut Font,
     text: &str,
     style: &TextStyle,
     glyph_cache: &'a mut GlyphCache,
-) -> (&'a [LayoutGlyph], Option<TextureId>) {
+) -> (&'a [LayoutGlyph], Option<TextureId>, f32) {
     let key = compute_layout_key(font, text, style);
 
     if glyph_cache.layout_cache.contains(&key) {
         glyph_cache.layout_cache.touch(&key);
         let atlas_id = glyph_cache.atlas_texture_id();
-        return (glyph_cache.layout_cache.get(&key).unwrap(), atlas_id);
+        let (glyphs, _width, height) = glyph_cache.layout_cache.get(&key).unwrap();
+        return (glyphs, atlas_id, height);
     }
 
     // Slow path: shape, rasterize, and cache
@@ -160,6 +194,7 @@ pub(crate) fn shape_and_cache_glyphs<'a>(
     buffer.set_text(font, text, &style.font_attrs);
 
     let glyphs = buffer.shape_and_layout(font);
+    let layout_height = buffer.layout_height();
     let mut result = Vec::with_capacity(glyphs.len());
 
     for glyph in &glyphs {
@@ -186,10 +221,16 @@ pub(crate) fn shape_and_cache_glyphs<'a>(
             y: glyph.y - cached.offset[1],
             cached,
             is_color: cached.is_color,
+            advance_width: glyph.width,
         });
     }
 
-    glyph_cache.layout_cache.insert(key, result);
+    let layout_width = result
+        .iter()
+        .map(|g| (g.x - g.cached.offset[0]) + g.advance_width)
+        .fold(0.0f32, f32::max);
+    glyph_cache.layout_cache.insert(key, result, layout_width, layout_height);
     let atlas_id = glyph_cache.atlas_texture_id();
-    (glyph_cache.layout_cache.get(&key).unwrap(), atlas_id)
+    let (glyphs, _width, height) = glyph_cache.layout_cache.get(&key).unwrap();
+    (glyphs, atlas_id, height)
 }

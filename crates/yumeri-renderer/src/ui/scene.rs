@@ -197,11 +197,13 @@ impl Scene {
         glyph_cache: &mut GlyphCache,
     ) {
         let fingerprint = crate::text::compute_text_fingerprint(font, text, style);
+        let atlas_gen = glyph_cache.atlas_generation();
 
         if let Some(node) = self.nodes.get(id) {
-            if node.text_fingerprint == fingerprint && !node.text_glyph_children.is_empty() {
-                // Verify glyph children have textures (atlas may not have been
-                // flushed to GPU when they were first created)
+            if node.text_fingerprint == fingerprint
+                && node.text_atlas_generation == atlas_gen
+                && !node.text_glyph_children.is_empty()
+            {
                 let has_textures = node.text_glyph_children.first()
                     .and_then(|&cid| self.nodes.get(cid))
                     .is_some_and(|c| c.texture.is_some());
@@ -211,7 +213,7 @@ impl Scene {
             }
         }
 
-        let (layout_glyphs, atlas_id) = shape_and_cache_glyphs(font, text, style, glyph_cache);
+        let (layout_glyphs, atlas_id, _) = shape_and_cache_glyphs(font, text, style, glyph_cache);
 
         // Glyph positions from text layout are relative to top-left,
         // but the parent node uses center+half-extents coordinates.
@@ -279,6 +281,7 @@ impl Scene {
         if let Some(node) = self.nodes.get_mut(id) {
             node.text_glyph_children = glyph_child_ids;
             node.text_fingerprint = fingerprint;
+            node.text_atlas_generation = atlas_gen;
         }
 
         if structure_changed {

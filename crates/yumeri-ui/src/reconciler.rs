@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use slotmap::Key;
+
 use crate::component::ComponentBox;
 use crate::element::{Element, ElementKey, ElementKind, WidgetType};
 use crate::event_ctx::EventCtx;
@@ -39,7 +41,8 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
         let matched = old_by_key.remove(&new_key);
 
         match element.kind {
-            ElementKind::Widget(widget_elem) => {
+            ElementKind::Widget(boxed_widget_elem) => {
+                let widget_elem = *boxed_widget_elem;
                 if let Some(old_id) = matched {
                     let type_matches = tree
                         .nodes
@@ -91,7 +94,6 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                         rebuild_component(tree, old_id);
                         new_child_ids.push(old_id);
                     } else {
-                        unmount_component(tree, old_id);
                         tree.remove_node(old_id);
                         let new_id = mount_component(tree, parent, comp_elem.create, Some(new_key));
                         new_child_ids.push(new_id);
@@ -104,9 +106,8 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
         }
     }
 
-    // Unmount remaining old nodes
+    // Remove remaining old nodes (remove_node handles unmounting)
     for (_, old_id) in old_by_key {
-        unmount_component(tree, old_id);
         tree.remove_node(old_id);
     }
 
@@ -187,6 +188,8 @@ fn init_component_node(
 
     // Call on_mount
     {
+        let owner_ffi = id.data().as_ffi();
+        tree.animator.set_default_owner(Some(owner_ffi));
         let mut ctx = EventCtx {
             animator: &mut tree.animator,
         };
@@ -195,6 +198,7 @@ fn init_component_node(
                 comp.on_mount(&mut ctx);
             }
         }
+        tree.animator.set_default_owner(None);
     }
 
     // Run initial view
@@ -207,9 +211,13 @@ fn init_component_node(
             Some(c) => c,
             None => return id,
         };
+        let owner_ffi = id.data().as_ffi();
+        tree.animator.set_default_owner(Some(owner_ffi));
         let mut ctx = ViewCtx::new(comp_type_id, &mut tree.animator)
             .with_template_provider_ptr(tree.template_provider_ptr());
-        comp.view(&mut ctx)
+        let element = comp.view(&mut ctx);
+        tree.animator.set_default_owner(None);
+        element
     };
 
     reconcile(tree, Some(id), vec![element]);
@@ -235,17 +243,6 @@ fn mount_component(
     )
 }
 
-fn unmount_component(tree: &mut UiTree, id: UiNodeId) {
-    if let Some(node) = tree.nodes.get_mut(id) {
-        if let Some(mut comp) = node.component.take() {
-            let mut ctx = EventCtx {
-                animator: &mut tree.animator,
-            };
-            comp.on_unmount(&mut ctx);
-        }
-    }
-}
-
 pub(crate) fn rebuild_component(tree: &mut UiTree, id: UiNodeId) {
     let element = {
         let node = match tree.nodes.get(id) {
@@ -258,9 +255,13 @@ pub(crate) fn rebuild_component(tree: &mut UiTree, id: UiNodeId) {
         };
 
         let type_id = comp.type_id();
+        let owner_ffi = id.data().as_ffi();
+        tree.animator.set_default_owner(Some(owner_ffi));
         let mut ctx = ViewCtx::new(type_id, &mut tree.animator)
             .with_template_provider_ptr(tree.template_provider_ptr());
-        comp.view(&mut ctx)
+        let element = comp.view(&mut ctx);
+        tree.animator.set_default_owner(None);
+        element
     };
 
     reconcile(tree, Some(id), vec![element]);
@@ -440,25 +441,25 @@ mod tests {
         let elements = vec![
             Element {
                 key: Some(ElementKey::Named("a".into())),
-                kind: ElementKind::Widget(WidgetElement {
+                kind: ElementKind::Widget(Box::new(WidgetElement {
                     widget_type: WidgetType::Text,
                     style: Style::default(),
                     props: WidgetProps { text: Some("A".into()), ..Default::default() },
                     children: Vec::new(),
                     event_handlers: Vec::new(),
                     focusable: false,
-                }),
+                })),
             },
             Element {
                 key: Some(ElementKey::Named("b".into())),
-                kind: ElementKind::Widget(WidgetElement {
+                kind: ElementKind::Widget(Box::new(WidgetElement {
                     widget_type: WidgetType::Text,
                     style: Style::default(),
                     props: WidgetProps { text: Some("B".into()), ..Default::default() },
                     children: Vec::new(),
                     event_handlers: Vec::new(),
                     focusable: false,
-                }),
+                })),
             },
         ];
         reconcile(&mut tree, Some(parent), elements);
@@ -472,25 +473,25 @@ mod tests {
         let elements = vec![
             Element {
                 key: Some(ElementKey::Named("b".into())),
-                kind: ElementKind::Widget(WidgetElement {
+                kind: ElementKind::Widget(Box::new(WidgetElement {
                     widget_type: WidgetType::Text,
                     style: Style::default(),
                     props: WidgetProps { text: Some("B2".into()), ..Default::default() },
                     children: Vec::new(),
                     event_handlers: Vec::new(),
                     focusable: false,
-                }),
+                })),
             },
             Element {
                 key: Some(ElementKey::Named("a".into())),
-                kind: ElementKind::Widget(WidgetElement {
+                kind: ElementKind::Widget(Box::new(WidgetElement {
                     widget_type: WidgetType::Text,
                     style: Style::default(),
                     props: WidgetProps { text: Some("A2".into()), ..Default::default() },
                     children: Vec::new(),
                     event_handlers: Vec::new(),
                     focusable: false,
-                }),
+                })),
             },
         ];
         reconcile(&mut tree, Some(parent), elements);

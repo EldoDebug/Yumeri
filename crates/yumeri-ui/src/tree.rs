@@ -1,4 +1,4 @@
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{Key, new_key_type, SlotMap};
 use taffy::TaffyTree;
 use yumeri_animation::animator::Animator;
 use yumeri_renderer::ui::NodeId as SceneNodeId;
@@ -126,41 +126,41 @@ impl UiTree {
             .set_node_context(taffy_node, Some(id))
             .expect("taffy set_node_context");
 
-        // Only set the parent link here; the reconciler sets the
-        // definitive children list (including taffy sync) at the end
-        // of each reconcile pass, so doing it here would be redundant O(n).
-        if let Some(parent_id) = parent {
-            if let Some(parent_node) = self.nodes.get_mut(parent_id) {
-                parent_node.children.push(id);
-            }
-        }
+        // Parent link only: the reconciler sets the definitive children
+        // list (including taffy sync) at the end of each reconcile pass.
 
         id
     }
 
     pub(crate) fn remove_node(&mut self, id: UiNodeId) {
-        let children: Vec<UiNodeId> = self
-            .nodes
-            .get(id)
-            .map(|n| n.children.clone())
-            .unwrap_or_default();
-
-        for child_id in children {
-            self.remove_node(child_id);
+        // Unlink from parent (O(n) scan only at the top level)
+        if let Some(parent_id) = self.nodes.get(id).and_then(|n| n.parent) {
+            if let Some(parent) = self.nodes.get_mut(parent_id) {
+                parent.children.retain(|&c| c != id);
+            }
         }
 
-        if let Some(node) = self.nodes.remove(id) {
-            let _ = self.taffy.remove(node.taffy_node);
-
-            // Queue scene node for removal so the renderer cleans it up
-            if let Some(scene_id) = node.scene_node {
-                self.pending_scene_removals.push(scene_id);
+        // Iteratively unmount components and remove entire subtree in a single pass
+        let mut stack = vec![id];
+        while let Some(node_id) = stack.pop() {
+            // Unmount component before removal (disjoint borrow: nodes vs animator)
+            if let Some(node) = self.nodes.get_mut(node_id) {
+                if let Some(mut comp) = node.component.take() {
+                    let owner_ffi = node_id.data().as_ffi();
+                    let mut ctx = crate::event_ctx::EventCtx {
+                        animator: &mut self.animator,
+                    };
+                    comp.on_unmount(&mut ctx);
+                    self.animator.cancel_by_owner(owner_ffi);
+                }
             }
 
-            if let Some(parent_id) = node.parent {
-                if let Some(parent) = self.nodes.get_mut(parent_id) {
-                    parent.children.retain(|&c| c != id);
+            if let Some(node) = self.nodes.remove(node_id) {
+                let _ = self.taffy.remove(node.taffy_node);
+                if let Some(scene_id) = node.scene_node {
+                    self.pending_scene_removals.push(scene_id);
                 }
+                stack.extend(node.children);
             }
         }
     }
@@ -198,12 +198,18 @@ impl UiTree {
                 .and_then(|c| c.take());
 
             if let Some(mut inner) = component {
+                // Tag new animations created during callback with the owning component
+                let owner_ffi = owner_id.data().as_ffi();
+                self.animator.set_default_owner(Some(owner_ffi));
+
                 // Take the handler out, invoke, put it back
                 let mut handler = self.nodes[node_id].event_handlers.remove(handler_idx);
                 handler.1.invoke(inner.as_mut(), payload);
                 self.nodes[node_id]
                     .event_handlers
                     .insert(handler_idx, handler);
+
+                self.animator.set_default_owner(None);
 
                 // Put component back
                 if let Some(node) = self.nodes.get_mut(owner_id) {

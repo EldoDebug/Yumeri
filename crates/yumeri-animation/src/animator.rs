@@ -26,12 +26,16 @@ pub struct Animator {
     // Reusable scratch buffer for per-frame completed handles
     completed_buf: Vec<RawHandle>,
     next_id: u64,
-    had_value_change: bool,
+    // Owner tracking for granular dirty-marking
+    default_owner: Option<u64>,
+    changed_owners: Vec<u64>,
+    has_unowned_changes: bool,
 }
 
 struct AnimationEntry {
     anim: Box<dyn AnyAnimation>,
     timeline_owned: bool,
+    owner: Option<u64>,
 }
 
 impl Animator {
@@ -42,7 +46,9 @@ impl Animator {
             events: Vec::new(),
             completed_buf: Vec::new(),
             next_id: 0,
-            had_value_change: false,
+            default_owner: None,
+            changed_owners: Vec::new(),
+            has_unowned_changes: false,
         }
     }
 
@@ -81,6 +87,7 @@ impl Animator {
             AnimationEntry {
                 anim: Box::new(anim),
                 timeline_owned,
+                owner: self.default_owner,
             },
         );
         handle
@@ -118,13 +125,31 @@ impl Animator {
 
     /// Returns true if any animation value changed during the last `update()`.
     pub fn had_value_change(&self) -> bool {
-        self.had_value_change
+        !self.changed_owners.is_empty() || self.has_unowned_changes
+    }
+
+    /// Set the default owner for subsequently registered animations.
+    /// The owner is an opaque u64 that consumers use to identify which
+    /// component/entity owns a given animation.
+    pub fn set_default_owner(&mut self, owner: Option<u64>) {
+        self.default_owner = owner;
+    }
+
+    /// Returns the set of owner IDs whose animations changed during the last `update()`.
+    pub fn changed_owners(&self) -> &[u64] {
+        &self.changed_owners
+    }
+
+    /// Returns true if any animation without an owner had a value change.
+    pub fn has_unowned_changes(&self) -> bool {
+        self.has_unowned_changes
     }
 
     /// Advance all animations by `dt`. Call once per frame.
     pub fn update(&mut self, dt: Duration) {
         let dt_secs = dt.as_secs_f64();
-        self.had_value_change = false;
+        self.changed_owners.clear();
+        self.has_unowned_changes = false;
 
         // Update standalone animations (skip timeline-owned ones)
         self.completed_buf.clear();
@@ -146,7 +171,13 @@ impl Animator {
                 }
                 None => {}
             }
-            self.had_value_change |= entry.anim.value_changed();
+            if entry.anim.value_changed() {
+                track_owner_change(
+                    &mut self.changed_owners,
+                    &mut self.has_unowned_changes,
+                    entry.owner,
+                );
+            }
         }
         for &raw in &self.completed_buf {
             self.events.push(AnimationEvent::Completed(raw));
@@ -212,7 +243,13 @@ impl Animator {
                     } else {
                         anim_entry.anim.seek((local_time / entry.duration_secs) as f32);
                     }
-                    self.had_value_change |= anim_entry.anim.value_changed();
+                    if anim_entry.anim.value_changed() {
+                        track_owner_change(
+                            &mut self.changed_owners,
+                            &mut self.has_unowned_changes,
+                            anim_entry.owner,
+                        );
+                    }
                 }
             }
         }
@@ -298,6 +335,19 @@ impl Animator {
         self.events.drain(..)
     }
 
+    /// Cancel all animations owned by the given owner ID.
+    pub fn cancel_by_owner(&mut self, owner: u64) {
+        self.animations.retain(|&id, entry| {
+            if entry.owner == Some(owner) {
+                self.events
+                    .push(AnimationEvent::Cancelled(RawHandle { id }));
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     /// Remove completed animations.
     pub fn gc(&mut self) {
         self.animations
@@ -316,6 +366,21 @@ impl Animator {
 impl Default for Animator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn track_owner_change(
+    changed_owners: &mut Vec<u64>,
+    has_unowned_changes: &mut bool,
+    owner: Option<u64>,
+) {
+    match owner {
+        Some(id) => {
+            if !changed_owners.contains(&id) {
+                changed_owners.push(id);
+            }
+        }
+        None => *has_unowned_changes = true,
     }
 }
 
@@ -813,5 +878,69 @@ mod tests {
         animator.update(Duration::from_millis(50));
         let v = animator.get(handle);
         assert!((v - 50.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn owner_tracking_reports_correct_owner() {
+        let mut animator = Animator::new();
+        animator.set_default_owner(Some(42));
+        let _handle = animator.play(
+            Tween::new(0.0_f32, 100.0).duration_ms(1000).build(),
+        );
+        animator.set_default_owner(None);
+
+        animator.update(Duration::from_millis(100));
+        assert!(animator.had_value_change());
+        assert!(!animator.has_unowned_changes());
+        assert_eq!(animator.changed_owners(), &[42]);
+    }
+
+    #[test]
+    fn unowned_animation_sets_has_unowned_changes() {
+        let mut animator = Animator::new();
+        let _handle = animator.play(
+            Tween::new(0.0_f32, 100.0).duration_ms(1000).build(),
+        );
+
+        animator.update(Duration::from_millis(100));
+        assert!(animator.had_value_change());
+        assert!(animator.has_unowned_changes());
+        assert!(animator.changed_owners().is_empty());
+    }
+
+    #[test]
+    fn multiple_owners_deduplicated() {
+        let mut animator = Animator::new();
+        animator.set_default_owner(Some(1));
+        let _a = animator.play(Tween::new(0.0_f32, 10.0).duration_ms(1000).build());
+        let _b = animator.play(Tween::new(0.0_f32, 20.0).duration_ms(1000).build());
+        animator.set_default_owner(Some(2));
+        let _c = animator.play(Tween::new(0.0_f32, 30.0).duration_ms(1000).build());
+        animator.set_default_owner(None);
+
+        animator.update(Duration::from_millis(100));
+        let mut owners = animator.changed_owners().to_vec();
+        owners.sort();
+        assert_eq!(owners, vec![1, 2]);
+    }
+
+    #[test]
+    fn completed_animation_no_owner_change() {
+        let mut animator = Animator::new();
+        animator.set_default_owner(Some(99));
+        let _handle = animator.play(
+            Tween::new(0.0_f32, 100.0).duration_ms(100).build(),
+        );
+        animator.set_default_owner(None);
+
+        // Complete the animation
+        animator.update(Duration::from_millis(100));
+        assert!(!animator.changed_owners().is_empty());
+
+        // After completion + gc, no more changes
+        animator.gc();
+        animator.update(Duration::from_millis(100));
+        assert!(!animator.had_value_change());
+        assert!(animator.changed_owners().is_empty());
     }
 }

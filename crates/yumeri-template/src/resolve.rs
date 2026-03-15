@@ -166,14 +166,14 @@ fn resolve_node(
 
     Element {
         key: None,
-        kind: ElementKind::Widget(WidgetElement {
+        kind: ElementKind::Widget(Box::new(WidgetElement {
             widget_type,
             style,
             props,
             children,
             event_handlers: node_handlers,
             focusable: false,
-        }),
+        })),
     }
 }
 
@@ -361,7 +361,7 @@ fn apply_state_override(
 fn empty_container() -> Element {
     Element {
         key: None,
-        kind: ElementKind::Widget(WidgetElement {
+        kind: ElementKind::Widget(Box::new(WidgetElement {
             widget_type: WidgetType::Container,
             style: Style {
                 visible: false,
@@ -371,6 +371,6 @@ fn empty_container() -> Element {
             children: Vec::new(),
             event_handlers: Vec::new(),
             focusable: false,
-        }),
+        })),
     }
 }

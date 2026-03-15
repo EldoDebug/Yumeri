@@ -64,7 +64,7 @@ impl<'a> RenderContext2D<'a> {
         position: [f32; 2],
         style: &TextStyle,
     ) {
-        let (layout_glyphs, atlas_id) = shape_and_cache_glyphs(font, text, style, self.glyph_cache);
+        let (layout_glyphs, atlas_id, _) = shape_and_cache_glyphs(font, text, style, self.glyph_cache);
 
         for lg in layout_glyphs {
             let texture = atlas_id.map(|id| crate::texture::Texture { id, uv_rect: lg.cached.uv });

@@ -79,14 +79,14 @@ impl From<Text> for Element {
     fn from(t: Text) -> Self {
         Element {
             key: None,
-            kind: ElementKind::Widget(WidgetElement {
+            kind: ElementKind::Widget(Box::new(WidgetElement {
                 widget_type: WidgetType::Text,
                 style: t.style,
                 props: t.props,
                 children: Vec::new(),
                 event_handlers: Vec::new(),
                 focusable: false,
-            }),
+            })),
         }
     }
 }

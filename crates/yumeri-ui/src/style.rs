@@ -26,6 +26,7 @@ pub struct Style {
 
     // Visual -> Scene
     pub background: Option<Color>,
+    /// Reserved — parsed from templates but not yet consumed by the renderer.
     pub border_color: Option<Color>,
     pub border_width: f32,
     pub corner_radius: f32,
@@ -36,11 +37,10 @@ pub struct Style {
     pub translate: [f32; 2],
     pub scale: [f32; 2],
     pub rotation: f32,
-    /// Pivot point for rotation/scale (0.0–1.0, relative to element size).
-    /// Currently reserved — the renderer always uses center origin [0.5, 0.5].
+    /// Reserved — the renderer always uses center origin [0.5, 0.5].
     pub transform_origin: [f32; 2],
 
-    // Transitions
+    /// Reserved — parsed from templates but not yet wired to the animation runtime.
     pub transitions: Vec<TransitionDef>,
 }
 

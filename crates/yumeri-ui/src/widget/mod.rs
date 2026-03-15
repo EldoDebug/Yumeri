@@ -98,14 +98,14 @@ macro_rules! impl_into_element {
                 crate::element::Element {
                     key: None,
                     kind: crate::element::ElementKind::Widget(
-                        crate::element::WidgetElement {
+                        Box::new(crate::element::WidgetElement {
                             widget_type: crate::element::WidgetType::$variant,
                             style: w.style,
                             props: crate::element::WidgetProps::default(),
                             children: w.children,
                             event_handlers: w.event_handlers,
                             focusable: w.focusable,
-                        },
+                        }),
                     ),
                 }
             }

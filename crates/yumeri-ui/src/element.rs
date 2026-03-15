@@ -20,7 +20,7 @@ pub struct Element {
 }
 
 pub enum ElementKind {
-    Widget(WidgetElement),
+    Widget(Box<WidgetElement>),
     Component(ComponentElement),
 }
 

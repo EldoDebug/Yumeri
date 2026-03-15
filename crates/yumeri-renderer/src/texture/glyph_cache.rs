@@ -29,6 +29,7 @@ pub struct GlyphCache {
     cursor_y: u32,
     row_height: u32,
     dirty: bool,
+    atlas_generation: u64,
 }
 
 impl GlyphCache {
@@ -42,6 +43,7 @@ impl GlyphCache {
             cursor_y: 0,
             row_height: 0,
             dirty: false,
+            atlas_generation: 0,
         }
     }
 
@@ -185,9 +187,33 @@ impl GlyphCache {
         self.cursor_y = 0;
         self.row_height = 0;
         self.dirty = true;
+        self.atlas_generation += 1;
     }
 
     pub fn atlas_texture_id(&self) -> Option<TextureId> {
         self.atlas_texture_id
+    }
+
+    pub fn atlas_generation(&self) -> u64 {
+        self.atlas_generation
+    }
+
+    /// Shape text and return its measured dimensions `(width, height)`.
+    /// The shaping result is cached so that subsequent rendering of the
+    /// same text+style avoids redundant work.
+    pub fn measure_text(
+        &mut self,
+        font: &mut yumeri_font::Font,
+        text: &str,
+        style: &crate::text::TextStyle,
+    ) -> (f32, f32) {
+        // shape_and_cache_glyphs populates the layout cache with pre-computed
+        // width and height, so we just read them back.
+        crate::text::shape_and_cache_glyphs(font, text, style, self);
+        let key = crate::text::compute_layout_key(font, text, style);
+        self.layout_cache
+            .get(&key)
+            .map(|(_, w, h)| (w, h))
+            .unwrap_or((0.0, 0.0))
     }
 }

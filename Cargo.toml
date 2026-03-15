@@ -1,3 +1,25 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "examples/*"]
+# yumeri-compositor depends on wayland/xkbcommon (Linux-only).
+# Exclude it from default builds so `cargo build`/`cargo clippy` works on all platforms.
+default-members = [
+    "crates/yumeri-animation",
+    "crates/yumeri-app",
+    "crates/yumeri-audio",
+    "crates/yumeri-components",
+    "crates/yumeri-desktop",
+    "crates/yumeri-font",
+    "crates/yumeri-image",
+    "crates/yumeri-input",
+    "crates/yumeri-live2d",
+    "crates/yumeri-renderer",
+    "crates/yumeri-shell",
+    "crates/yumeri-template",
+    "crates/yumeri-threading",
+    "crates/yumeri-types",
+    "crates/yumeri-ui",
+    "crates/yumeri-video",
+    "crates/yumeri-wm",
+    "examples/*",
+]

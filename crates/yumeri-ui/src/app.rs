@@ -15,7 +15,7 @@ use crate::event::propagation::dispatch_event;
 use crate::reconciler::{mount_root_component, rebuild_component};
 use crate::renderer_bridge::sync_to_scene;
 use crate::template_provider::TemplateProvider;
-use crate::tree::UiTree;
+use crate::tree::{UiNodeId, UiTree};
 
 pub struct UiApp<C: Component> {
     create: Option<Box<dyn FnOnce() -> C>>,
@@ -66,9 +66,22 @@ impl<C: Component> UiApp<C> {
         self.tree.animator.update(dt);
         self.tree.animator.gc();
 
-        // Animation change → full rebuild from root (animator doesn't track per-component)
+        // Mark animation-owning components dirty for granular rebuild
         if self.tree.animator.had_value_change() {
-            self.tree.needs_rebuild = true;
+            if self.tree.animator.has_unowned_changes() {
+                // Unowned animations: fall back to full rebuild
+                self.tree.needs_rebuild = true;
+            } else {
+                for &owner_ffi in self.tree.animator.changed_owners() {
+                    let node_id =
+                        UiNodeId::from(slotmap::KeyData::from_ffi(owner_ffi));
+                    if self.tree.nodes.contains_key(node_id)
+                        && !self.tree.dirty_components.contains(&node_id)
+                    {
+                        self.tree.dirty_components.push(node_id);
+                    }
+                }
+            }
         }
 
         // Rebuild dirty components

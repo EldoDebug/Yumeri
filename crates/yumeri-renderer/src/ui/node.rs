@@ -41,6 +41,7 @@ pub(crate) struct Node {
 
     pub(crate) text_glyph_children: Vec<NodeId>,
     pub(crate) text_fingerprint: u64,
+    pub(crate) text_atlas_generation: u64,
 }
 
 impl Node {
@@ -64,6 +65,7 @@ impl Node {
             dirty: DirtyFlags::all(),
             text_glyph_children: Vec::new(),
             text_fingerprint: 0,
+            text_atlas_generation: 0,
         }
     }
 

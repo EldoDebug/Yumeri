@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use yumeri_animation::easing::Easing;
-use yumeri_animation::handle::RawHandle;
-use yumeri_types::Color;
 
+/// Defines a CSS-like transition for a style property.
+/// Currently parsed by the template system but not yet wired to the
+/// animation runtime. Stored on [`crate::style::Style::transitions`].
 #[derive(Clone)]
 pub struct TransitionDef {
     pub property: TransitionProperty,
@@ -56,22 +57,4 @@ pub enum TransitionProperty {
     Translate,
     Scale,
     Rotation,
-}
-
-#[derive(Clone, Debug)]
-pub struct TransitionSnapshot {
-    pub opacity: f32,
-    pub background: Option<Color>,
-    pub width: f32,
-    pub height: f32,
-    pub corner_radius: f32,
-    pub translate: [f32; 2],
-    pub scale: [f32; 2],
-    pub rotation: f32,
-}
-
-#[allow(dead_code)]
-pub(crate) struct ActiveTransition {
-    pub property: TransitionProperty,
-    pub handle: RawHandle,
 }

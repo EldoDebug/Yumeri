@@ -24,7 +24,6 @@ pub mod prelude {
     pub use crate::event_ctx::EventCtx;
     pub use crate::style::{Align, Dimension, Direction, Edges, Justify, Position, Style, Theme};
     pub use crate::template_provider::TemplateProvider;
-    pub use crate::transition::{TransitionDef, TransitionProperty};
     pub use crate::tree::{UiNodeId, UiTree};
     pub use crate::view_ctx::ViewCtx;
     pub use crate::widget::*;

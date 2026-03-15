@@ -44,7 +44,7 @@ fn main() {
     panic!("Unsupported target: {target}");
 }
 
-fn link_windows(core_dir: &PathBuf, target: &str, profile: &str, is_static: bool) {
+fn link_windows(core_dir: &std::path::Path, target: &str, profile: &str, is_static: bool) {
     let arch = if target.contains("x86_64") {
         "x86_64"
     } else if target.contains("i686") || target.contains("x86") {
@@ -93,7 +93,7 @@ fn link_windows(core_dir: &PathBuf, target: &str, profile: &str, is_static: bool
     stage_windows_dll(&dll, profile);
 }
 
-fn pick_latest_numeric_subdir(dir: &PathBuf) -> Option<String> {
+fn pick_latest_numeric_subdir(dir: &std::path::Path) -> Option<String> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut best: Option<(u32, String)> = None;
     for entry in entries.flatten() {
@@ -111,7 +111,7 @@ fn pick_latest_numeric_subdir(dir: &PathBuf) -> Option<String> {
     best.map(|(_, name)| name)
 }
 
-fn link_macos(core_dir: &PathBuf, target: &str, is_static: bool) {
+fn link_macos(core_dir: &std::path::Path, target: &str, is_static: bool) {
     let arch = if target.contains("aarch64") {
         "arm64"
     } else if target.contains("x86_64") {
@@ -148,7 +148,7 @@ fn link_macos(core_dir: &PathBuf, target: &str, is_static: bool) {
     println!("cargo:rustc-link-lib=dylib=Live2DCubismCore");
 }
 
-fn link_linux(core_dir: &PathBuf, target: &str, is_static: bool) {
+fn link_linux(core_dir: &std::path::Path, target: &str, is_static: bool) {
     if !target.contains("x86_64") {
         panic!("Unsupported Linux arch for Cubism Core (currently x86_64 only): {target}");
     }
@@ -181,7 +181,7 @@ fn link_linux(core_dir: &PathBuf, target: &str, is_static: bool) {
     println!("cargo:rustc-link-lib=dylib=Live2DCubismCore");
 }
 
-fn stage_windows_dll(dll: &PathBuf, profile: &str) {
+fn stage_windows_dll(dll: &std::path::Path, profile: &str) {
     let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") else {
         return;
     };

@@ -46,7 +46,7 @@ impl From<Image> for Element {
     fn from(img: Image) -> Self {
         Element {
             key: None,
-            kind: ElementKind::Widget(WidgetElement {
+            kind: ElementKind::Widget(Box::new(WidgetElement {
                 widget_type: WidgetType::Image,
                 style: img.style,
                 props: WidgetProps {
@@ -56,7 +56,7 @@ impl From<Image> for Element {
                 children: Vec::new(),
                 event_handlers: Vec::new(),
                 focusable: false,
-            }),
+            })),
         }
     }
 }
