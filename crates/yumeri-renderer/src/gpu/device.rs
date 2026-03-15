@@ -25,6 +25,7 @@ pub struct VulkanDevice {
     physical_device: vk::PhysicalDevice,
     queue_family_indices: QueueFamilyIndices,
     graphics_queue: vk::Queue,
+    #[allow(dead_code)] // Queue handle reserved for future Vulkan Video decode
     video_decode_queue: Option<vk::Queue>,
     enabled_video_extensions: Vec<&'static CStr>,
 }
@@ -137,14 +138,6 @@ impl VulkanDevice {
 
     pub fn graphics_queue(&self) -> vk::Queue {
         self.graphics_queue
-    }
-
-    pub fn video_decode_queue(&self) -> Option<vk::Queue> {
-        self.video_decode_queue
-    }
-
-    pub fn has_video_decode_support(&self) -> bool {
-        !self.enabled_video_extensions.is_empty()
     }
 
     pub fn enabled_video_extensions(&self) -> &[&'static CStr] {

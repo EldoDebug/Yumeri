@@ -63,12 +63,11 @@ impl<C: Component> UiApp<C> {
         self.last_frame = Some(now);
 
         // Update animations
-        let had_active = self.tree.animator.has_active();
         self.tree.animator.update(dt);
         self.tree.animator.gc();
 
-        // Force rebuild when animations are running so view() can read new values
-        if had_active {
+        // Only rebuild when animation values actually changed
+        if self.tree.animator.had_value_change() {
             self.tree.needs_rebuild = true;
         }
 

@@ -5,12 +5,11 @@ use yumeri_renderer::ui::NodeId as SceneNodeId;
 
 use crate::callback::AnyCallback;
 use crate::component::ComponentBox;
-use crate::element::{WidgetProps, WidgetType};
+use crate::element::{ElementKey, WidgetProps, WidgetType};
 use crate::event::{EventKind, EventPayload};
 use crate::event::focus::FocusState;
 use crate::style::Style;
 use crate::template_provider::TemplateProvider;
-use crate::transition::{ActiveTransition, TransitionSnapshot};
 
 new_key_type! { pub struct UiNodeId; }
 
@@ -26,10 +25,7 @@ pub(crate) struct UiNode {
     pub component: Option<ComponentBox>,
     pub focusable: bool,
     pub dirty: bool,
-    #[allow(dead_code)]
-    pub transition_snapshot: Option<TransitionSnapshot>,
-    #[allow(dead_code)]
-    pub active_transitions: Vec<ActiveTransition>,
+    pub key: Option<ElementKey>,
 }
 
 pub struct UiTree {
@@ -106,6 +102,7 @@ impl UiTree {
         props: WidgetProps,
         parent: Option<UiNodeId>,
         focusable: bool,
+        key: Option<ElementKey>,
     ) -> UiNodeId {
         let taffy_style = crate::layout::to_taffy_style(&style);
         let taffy_node = self.taffy.new_leaf(taffy_style).expect("taffy new_leaf");
@@ -122,8 +119,7 @@ impl UiTree {
             component: None,
             focusable,
             dirty: true,
-            transition_snapshot: None,
-            active_transitions: Vec::new(),
+            key,
         });
 
         self.taffy

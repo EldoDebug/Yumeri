@@ -26,6 +26,7 @@ pub struct Animator {
     // Reusable scratch buffer for per-frame completed handles
     completed_buf: Vec<RawHandle>,
     next_id: u64,
+    had_value_change: bool,
 }
 
 struct AnimationEntry {
@@ -41,6 +42,7 @@ impl Animator {
             events: Vec::new(),
             completed_buf: Vec::new(),
             next_id: 0,
+            had_value_change: false,
         }
     }
 
@@ -114,9 +116,15 @@ impl Animator {
         TimelineHandle { id: tl_id }
     }
 
+    /// Returns true if any animation value changed during the last `update()`.
+    pub fn had_value_change(&self) -> bool {
+        self.had_value_change
+    }
+
     /// Advance all animations by `dt`. Call once per frame.
     pub fn update(&mut self, dt: Duration) {
         let dt_secs = dt.as_secs_f64();
+        self.had_value_change = false;
 
         // Update standalone animations (skip timeline-owned ones)
         self.completed_buf.clear();
@@ -138,6 +146,7 @@ impl Animator {
                 }
                 None => {}
             }
+            self.had_value_change |= entry.anim.value_changed();
         }
         for &raw in &self.completed_buf {
             self.events.push(AnimationEvent::Completed(raw));
@@ -203,6 +212,7 @@ impl Animator {
                     } else {
                         anim_entry.anim.seek((local_time / entry.duration_secs) as f32);
                     }
+                    self.had_value_change |= anim_entry.anim.value_changed();
                 }
             }
         }
@@ -218,6 +228,7 @@ impl Animator {
                 }
             }
         }
+
     }
 
     /// Get the current interpolated value.
@@ -391,6 +402,7 @@ trait AnyAnimation: Send + Sync {
     fn set_playback(&mut self, state: PlaybackState);
     fn seek(&mut self, progress: f32);
     fn set_speed(&mut self, speed: f32);
+    fn value_changed(&self) -> bool;
 }
 
 // --- Unified animation state ---
@@ -406,6 +418,7 @@ struct AnimationState<S, T: Interpolate> {
     playback: PlaybackState,
     loop_count: u32,
     speed: f32,
+    value_changed: bool,
 }
 
 impl<S: AnimationSource<T>, T: Interpolate> AnimationState<S, T> {
@@ -422,6 +435,7 @@ impl<S: AnimationSource<T>, T: Interpolate> AnimationState<S, T> {
             playback: PlaybackState::Playing,
             loop_count: 0,
             speed: 1.0,
+            value_changed: true,
         };
         s.current = s.compute_current();
         s
@@ -485,7 +499,9 @@ where
             None
         };
 
-        self.current = self.compute_current();
+        let new_value = self.compute_current();
+        self.value_changed = new_value != self.current;
+        self.current = new_value;
         event
     }
 
@@ -503,11 +519,17 @@ where
 
     fn seek(&mut self, progress: f32) {
         self.elapsed_secs = self.total_secs * progress as f64;
-        self.current = self.compute_current();
+        let new_value = self.compute_current();
+        self.value_changed = new_value != self.current;
+        self.current = new_value;
     }
 
     fn set_speed(&mut self, speed: f32) {
         self.speed = speed;
+    }
+
+    fn value_changed(&self) -> bool {
+        self.value_changed
     }
 }
 

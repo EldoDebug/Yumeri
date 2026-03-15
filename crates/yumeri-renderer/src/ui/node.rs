@@ -40,6 +40,7 @@ pub(crate) struct Node {
     pub(crate) dirty: DirtyFlags,
 
     pub(crate) text_glyph_children: Vec<NodeId>,
+    pub(crate) text_fingerprint: u64,
 }
 
 impl Node {
@@ -62,6 +63,7 @@ impl Node {
             render_index: None,
             dirty: DirtyFlags::all(),
             text_glyph_children: Vec::new(),
+            text_fingerprint: 0,
         }
     }
 

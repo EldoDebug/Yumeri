@@ -39,11 +39,6 @@ impl Text {
         self
     }
 
-    pub fn max_width(mut self, w: f32) -> Self {
-        self.props.max_width = Some(w);
-        self
-    }
-
     pub fn width(mut self, w: impl Into<Dimension>) -> Self {
         self.style.width = w.into();
         self

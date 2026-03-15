@@ -196,6 +196,14 @@ impl Scene {
         style: &TextStyle,
         glyph_cache: &mut GlyphCache,
     ) {
+        let fingerprint = crate::text::compute_text_fingerprint(font, text, style);
+
+        if let Some(node) = self.nodes.get(id) {
+            if node.text_fingerprint == fingerprint && !node.text_glyph_children.is_empty() {
+                return;
+            }
+        }
+
         self.clear_glyph_children(id);
 
         let (layout_glyphs, atlas_id) = shape_and_cache_glyphs(font, text, style, glyph_cache);
@@ -227,6 +235,7 @@ impl Scene {
 
         if let Some(node) = self.nodes.get_mut(id) {
             node.text_glyph_children = glyph_child_ids;
+            node.text_fingerprint = fingerprint;
         }
 
         self.tree_dirty = true;

@@ -22,7 +22,21 @@ pub fn render_frame(state: &mut CompositorState) {
 
     let removals = std::mem::take(&mut state.pending_texture_removals);
 
+    // Build draw list before the render call; new textures won't appear until next frame
+    let window_draw_list: Vec<((i32, i32), (u32, u32), Option<TextureId>)> =
+        state.focus_stack.iter_back_to_front()
+            .filter_map(|wid| {
+                let w = state.windows.get(wid)?;
+                if !w.mapped { return None; }
+                Some((w.position, w.size, w.texture_id))
+            })
+            .collect();
+
+    let output_size = state.output_size;
+    let layer_shell = &state.layer_shell;
+
     let result = state.render_state.render_frame(&state.gpu, &state.pool, |ctx| {
+        // Phase 1: Texture management
         for tex_id in &removals {
             ctx.remove_texture(*tex_id);
         }
@@ -39,37 +53,10 @@ pub fn render_frame(state: &mut CompositorState) {
                 }
             }
         }
-    }, None, None);
 
-    if let Err(e) = result {
-        log::error!("render_frame upload pass failed: {e}");
-    }
-
-    NEW_TEXTURES.with(|c| {
-        for (wid, tex_id) in c.borrow().iter() {
-            if let Some(w) = state.windows.get_mut(*wid) {
-                w.texture_id = Some(*tex_id);
-            }
-        }
-    });
-
-    let window_draw_list: Vec<((i32, i32), (u32, u32), Option<TextureId>)> =
-        state.focus_stack.iter_back_to_front()
-            .filter_map(|wid| {
-                let w = state.windows.get(wid)?;
-                if !w.mapped { return None; }
-                Some((w.position, w.size, w.texture_id))
-            })
-            .collect();
-
-    let output_size = state.output_size;
-    let layer_shell = &state.layer_shell;
-
-    let result = state.render_state.render_frame(&state.gpu, &state.pool, |ctx| {
-        // Layer shell: Background + Bottom
+        // Phase 2: Drawing
         layer_shell.render_below_windows(ctx, output_size);
 
-        // Windows back to front
         for (pos, size, tex_id) in &window_draw_list {
             let x = pos.0 as f32;
             let y = pos.1 as f32;
@@ -87,13 +74,21 @@ pub fn render_frame(state: &mut CompositorState) {
             });
         }
 
-        // Layer shell: Top + Overlay
         layer_shell.render_above_windows(ctx, output_size);
     }, None, None);
 
     if let Err(e) = result {
-        log::error!("render_frame draw pass failed: {e}");
+        log::error!("render_frame failed: {e}");
     }
+
+    // Update texture IDs after render_frame completes
+    NEW_TEXTURES.with(|c| {
+        for (wid, tex_id) in c.borrow().iter() {
+            if let Some(w) = state.windows.get_mut(*wid) {
+                w.texture_id = Some(*tex_id);
+            }
+        }
+    });
 }
 
 pub fn hit_test_window(

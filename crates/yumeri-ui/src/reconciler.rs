@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::component::ComponentBox;
 use crate::element::{Element, ElementKey, ElementKind, WidgetType};
 use crate::event_ctx::EventCtx;
@@ -15,14 +17,16 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
         None => tree.root.into_iter().collect(),
     };
 
-    let mut old_by_key: Vec<(Option<ElementKey>, UiNodeId)> = old_children
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| {
-            let key = Some(ElementKey::Index(i));
-            (key, id)
-        })
-        .collect();
+    // Build O(1) lookup from key → node id using stored keys
+    let mut old_by_key: HashMap<ElementKey, UiNodeId> = HashMap::with_capacity(old_children.len());
+    for (i, &id) in old_children.iter().enumerate() {
+        let key = tree
+            .nodes
+            .get(id)
+            .and_then(|n| n.key.clone())
+            .unwrap_or(ElementKey::Index(i));
+        old_by_key.insert(key, id);
+    }
 
     let mut new_child_ids = Vec::with_capacity(new_elements.len());
 
@@ -32,14 +36,11 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
             .clone()
             .unwrap_or(ElementKey::Index(new_idx));
 
-        let matched = old_by_key
-            .iter()
-            .position(|(k, _)| k.as_ref() == Some(&new_key));
+        let matched = old_by_key.remove(&new_key);
 
         match element.kind {
             ElementKind::Widget(widget_elem) => {
-                if let Some(pos) = matched {
-                    let (_, old_id) = old_by_key.remove(pos);
+                if let Some(old_id) = matched {
                     let type_matches = tree
                         .nodes
                         .get(old_id)
@@ -68,19 +69,18 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                         // Type mismatch: remove old, mount new
                         tree.remove_node(old_id);
                         let wt = widget_elem.widget_type;
-                        let new_id = mount_widget(tree, parent, wt, widget_elem);
+                        let new_id = mount_widget(tree, parent, wt, widget_elem, Some(new_key));
                         new_child_ids.push(new_id);
                     }
                 } else {
                     // No match: mount new
                     let wt = widget_elem.widget_type;
-                    let new_id = mount_widget(tree, parent, wt, widget_elem);
+                    let new_id = mount_widget(tree, parent, wt, widget_elem, Some(new_key));
                     new_child_ids.push(new_id);
                 }
             }
             ElementKind::Component(comp_elem) => {
-                if let Some(pos) = matched {
-                    let (_, old_id) = old_by_key.remove(pos);
+                if let Some(old_id) = matched {
                     let type_matches = tree
                         .nodes
                         .get(old_id)
@@ -94,11 +94,11 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                     } else {
                         unmount_component(tree, old_id);
                         tree.remove_node(old_id);
-                        let new_id = mount_component(tree, parent, comp_elem.create);
+                        let new_id = mount_component(tree, parent, comp_elem.create, Some(new_key));
                         new_child_ids.push(new_id);
                     }
                 } else {
-                    let new_id = mount_component(tree, parent, comp_elem.create);
+                    let new_id = mount_component(tree, parent, comp_elem.create, Some(new_key));
                     new_child_ids.push(new_id);
                 }
             }
@@ -142,6 +142,7 @@ fn mount_widget(
     parent: Option<UiNodeId>,
     widget_type: WidgetType,
     widget_elem: crate::element::WidgetElement,
+    key: Option<ElementKey>,
 ) -> UiNodeId {
     let id = tree.insert_node(
         widget_type,
@@ -149,6 +150,7 @@ fn mount_widget(
         widget_elem.props,
         parent,
         widget_elem.focusable,
+        key,
     );
     if let Some(node) = tree.nodes.get_mut(id) {
         node.event_handlers = widget_elem.event_handlers;
@@ -167,6 +169,7 @@ fn init_component_node(
     comp_box: ComponentBox,
     parent: Option<UiNodeId>,
     container_style: style::Style,
+    key: Option<ElementKey>,
 ) -> UiNodeId {
     let comp_type_id = comp_box.type_id();
 
@@ -176,6 +179,7 @@ fn init_component_node(
         Default::default(),
         parent,
         false,
+        key,
     );
 
     if let Some(node) = tree.nodes.get_mut(id) {
@@ -217,6 +221,7 @@ fn mount_component(
     tree: &mut UiTree,
     parent: Option<UiNodeId>,
     create: Box<dyn FnOnce() -> ComponentBox>,
+    key: Option<ElementKey>,
 ) -> UiNodeId {
     init_component_node(
         tree,
@@ -227,6 +232,7 @@ fn mount_component(
             height: style::Dimension::Auto,
             ..Default::default()
         },
+        key,
     )
 }
 
@@ -276,6 +282,7 @@ pub(crate) fn mount_root_component<C: crate::component::Component>(
             height: style::Dimension::Percent(1.0),
             ..Default::default()
         },
+        None,
     );
 
     tree.root = Some(id);
@@ -344,6 +351,7 @@ mod tests {
             WidgetProps::default(),
             None,
             false,
+            None,
         );
         tree.root = Some(parent);
 
@@ -366,6 +374,7 @@ mod tests {
             WidgetProps::default(),
             None,
             false,
+            None,
         );
         tree.root = Some(parent);
 
@@ -393,6 +402,7 @@ mod tests {
             WidgetProps::default(),
             None,
             false,
+            None,
         );
         tree.root = Some(parent);
 
@@ -412,5 +422,87 @@ mod tests {
         // Props should be updated
         let node = tree.nodes.get(child_id).unwrap();
         assert_eq!(node.props.text.as_deref(), Some("New"));
+    }
+
+    #[test]
+    fn reconcile_named_key_reorders_without_remount() {
+        let mut tree = UiTree::new();
+        let parent = tree.insert_node(
+            WidgetType::Container,
+            Style::default(),
+            WidgetProps::default(),
+            None,
+            false,
+            None,
+        );
+        tree.root = Some(parent);
+
+        // Mount A, B with named keys
+        let elements = vec![
+            Element {
+                key: Some(ElementKey::Named("a".into())),
+                kind: ElementKind::Widget(WidgetElement {
+                    widget_type: WidgetType::Text,
+                    style: Style::default(),
+                    props: WidgetProps { text: Some("A".into()), ..Default::default() },
+                    children: Vec::new(),
+                    event_handlers: Vec::new(),
+                    focusable: false,
+                }),
+            },
+            Element {
+                key: Some(ElementKey::Named("b".into())),
+                kind: ElementKind::Widget(WidgetElement {
+                    widget_type: WidgetType::Text,
+                    style: Style::default(),
+                    props: WidgetProps { text: Some("B".into()), ..Default::default() },
+                    children: Vec::new(),
+                    event_handlers: Vec::new(),
+                    focusable: false,
+                }),
+            },
+        ];
+        reconcile(&mut tree, Some(parent), elements);
+
+        let children = tree.nodes.get(parent).unwrap().children.clone();
+        assert_eq!(children.len(), 2);
+        let id_a = children[0];
+        let id_b = children[1];
+
+        // Reorder: B, A
+        let elements = vec![
+            Element {
+                key: Some(ElementKey::Named("b".into())),
+                kind: ElementKind::Widget(WidgetElement {
+                    widget_type: WidgetType::Text,
+                    style: Style::default(),
+                    props: WidgetProps { text: Some("B2".into()), ..Default::default() },
+                    children: Vec::new(),
+                    event_handlers: Vec::new(),
+                    focusable: false,
+                }),
+            },
+            Element {
+                key: Some(ElementKey::Named("a".into())),
+                kind: ElementKind::Widget(WidgetElement {
+                    widget_type: WidgetType::Text,
+                    style: Style::default(),
+                    props: WidgetProps { text: Some("A2".into()), ..Default::default() },
+                    children: Vec::new(),
+                    event_handlers: Vec::new(),
+                    focusable: false,
+                }),
+            },
+        ];
+        reconcile(&mut tree, Some(parent), elements);
+
+        let children_after = tree.nodes.get(parent).unwrap().children.clone();
+        assert_eq!(children_after.len(), 2);
+        // Node IDs should be preserved (same nodes, just reordered)
+        assert_eq!(children_after[0], id_b);
+        assert_eq!(children_after[1], id_a);
+        // Props should be updated
+        assert_eq!(tree.nodes.get(id_b).unwrap().props.text.as_deref(), Some("B2"));
+        assert_eq!(tree.nodes.get(id_a).unwrap().props.text.as_deref(), Some("A2"));
     }
 }

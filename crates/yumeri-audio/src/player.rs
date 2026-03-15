@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{mpsc, Arc};
 
@@ -323,6 +324,150 @@ impl AudioPlayer {
         }
     }
 
+    /// Start playing audio from a streaming source.
+    /// Samples arrive via `receiver` in chunks tagged with a generation counter.
+    /// On seek, increment the generation so stale chunks are discarded.
+    pub fn play_streaming(
+        &self,
+        receiver: mpsc::Receiver<StreamChunk>,
+        src_channels: u16,
+        src_rate: u32,
+        volume: f32,
+    ) -> Result<StreamingAudioHandle> {
+        let dst_channels = self.config.channels as usize;
+        let dst_rate = self.config.sample_rate.0;
+        let rate_ratio = src_rate as f64 / dst_rate as f64;
+        let src_ch = src_channels as usize;
+
+        let stream_state = Arc::new(StreamingState {
+            generation: AtomicU64::new(0),
+        });
+
+        let state = Arc::new(SharedState {
+            cursor: AtomicU64::new(0),
+            volume: AtomicU32::new(volume.to_bits()),
+            playback: AtomicU8::new(PlaybackState::Playing as u8),
+            looping: AtomicU8::new(0),
+            total_src_frames: u64::MAX,
+            dst_rate,
+        });
+
+        let cb_state = Arc::clone(&state);
+        let cb_stream = Arc::clone(&stream_state);
+        let config = self.config.clone();
+        let (result_tx, result_rx) = mpsc::channel::<std::result::Result<(), String>>();
+        let (drop_tx, drop_rx) = mpsc::channel::<()>();
+
+        std::thread::spawn(move || {
+            let host = cpal::default_host();
+            let device = match host.default_output_device() {
+                Some(d) => d,
+                None => {
+                    let _ = result_tx.send(Err("no output device".into()));
+                    return;
+                }
+            };
+
+            let mut ring_buffer: VecDeque<f32> = VecDeque::with_capacity(
+                src_rate as usize * src_ch * 200 / 1000, // ~200ms buffer
+            );
+            let mut local_generation: u64 = 0;
+            let mut src_pos: f64 = 0.0;
+
+            let stream = match device.build_output_stream(
+                &config,
+                move |output: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let ps = cb_state.playback.load(Ordering::Relaxed);
+                    if ps != PlaybackState::Playing as u8 {
+                        output.fill(0.0);
+                        return;
+                    }
+
+                    let vol = f32::from_bits(cb_state.volume.load(Ordering::Relaxed));
+                    let current_gen = cb_stream.generation.load(Ordering::Relaxed);
+
+                    // Handle generation change (seek)
+                    if current_gen != local_generation {
+                        ring_buffer.clear();
+                        src_pos = 0.0;
+                        local_generation = current_gen;
+                    }
+
+                    // Drain receiver into ring buffer
+                    while let Ok(chunk) = receiver.try_recv() {
+                        if chunk.generation == current_gen {
+                            ring_buffer.extend(&chunk.samples);
+                        }
+                    }
+
+                    // Make contiguous for cache-friendly slice access in the hot loop
+                    let buf = ring_buffer.make_contiguous();
+                    let buf_len = buf.len();
+
+                    let mut cursor = cb_state.cursor.load(Ordering::Relaxed);
+
+                    for frame in output.chunks_mut(dst_channels) {
+                        let idx_a = src_pos as usize * src_ch;
+                        let idx_b = (src_pos as usize + 1) * src_ch;
+                        let frac = (src_pos - src_pos.floor()) as f32;
+
+                        if idx_b + src_ch > buf_len {
+                            // Underrun: fill silence, don't advance src_pos
+                            frame.fill(0.0);
+                        } else {
+                            for (dst_ch_idx, sample) in frame.iter_mut().enumerate() {
+                                let sc = dst_ch_idx % src_ch;
+                                let a = buf[idx_a + sc];
+                                let b = buf[idx_b + sc];
+                                *sample = (a + (b - a) * frac) * vol;
+                            }
+                            src_pos += rate_ratio;
+                        }
+
+                        cursor += 1;
+                    }
+
+                    // Drain consumed samples from front of ring buffer
+                    let consumed_frames = src_pos as usize;
+                    let consumed_samples = consumed_frames * src_ch;
+                    let drain_count = consumed_samples.min(ring_buffer.len());
+                    ring_buffer.drain(..drain_count);
+                    src_pos -= consumed_frames as f64;
+
+                    cb_state.cursor.store(cursor, Ordering::Relaxed);
+                },
+                |err| log::error!("streaming audio error: {err}"),
+                None,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = result_tx.send(Err(e.to_string()));
+                    return;
+                }
+            };
+
+            if let Err(e) = stream.play() {
+                let _ = result_tx.send(Err(e.to_string()));
+                return;
+            }
+
+            let _ = result_tx.send(Ok(()));
+            let _ = drop_rx.recv();
+        });
+
+        match result_rx.recv() {
+            Ok(Ok(())) => Ok(StreamingAudioHandle {
+                handle: AudioHandle {
+                    state,
+                    _drop_guard: Arc::new(drop_tx),
+                },
+                stream_state,
+            }),
+            Ok(Err(e)) => Err(AudioError::Playback(e)),
+            Err(_) => Err(AudioError::Playback("streaming audio thread exited unexpectedly".into())),
+        }
+    }
+
     fn decode_to_f32(audio: &Audio) -> Result<(Vec<f32>, usize, u32)> {
         if audio.format() == SampleFormat::F32 {
             Ok((
@@ -450,6 +595,60 @@ impl AudioHandle {
 
     pub fn position_secs(&self) -> f64 {
         self.state.cursor.load(Ordering::Relaxed) as f64 / self.state.dst_rate as f64
+    }
+}
+
+/// A chunk of decoded f32 samples tagged with a generation counter for seek support.
+pub struct StreamChunk {
+    pub samples: Vec<f32>,
+    pub generation: u64,
+}
+
+struct StreamingState {
+    generation: AtomicU64,
+}
+
+/// Handle to a streaming audio playback. Wraps `AudioHandle` with seek/flush support.
+pub struct StreamingAudioHandle {
+    handle: AudioHandle,
+    stream_state: Arc<StreamingState>,
+}
+
+impl StreamingAudioHandle {
+    /// Increment the generation counter, causing the audio callback to discard
+    /// any buffered data from before this point.
+    pub fn flush(&self) -> u64 {
+        self.stream_state
+            .generation
+            .fetch_add(1, Ordering::Relaxed)
+            + 1
+    }
+
+    /// Get the current generation counter.
+    pub fn generation(&self) -> u64 {
+        self.stream_state.generation.load(Ordering::Relaxed)
+    }
+}
+
+impl std::ops::Deref for StreamingAudioHandle {
+    type Target = AudioHandle;
+    fn deref(&self) -> &AudioHandle {
+        &self.handle
+    }
+}
+
+impl Clone for StreamingAudioHandle {
+    fn clone(&self) -> Self {
+        Self {
+            handle: self.handle.clone(),
+            stream_state: Arc::clone(&self.stream_state),
+        }
+    }
+}
+
+impl From<StreamingAudioHandle> for AudioHandle {
+    fn from(streaming: StreamingAudioHandle) -> Self {
+        streaming.handle
     }
 }
 

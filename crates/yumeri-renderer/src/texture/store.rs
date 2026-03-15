@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use ash::vk;
@@ -36,7 +36,9 @@ pub struct TextureStore {
     descriptor_pool: vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_sets: Vec<vk::DescriptorSet>,
-    dirty: bool,
+    dirty_indices: HashSet<u32>,
+    /// Reverse map: descriptor array index → slotmap key for O(1) lookup during flush.
+    desc_to_tex: HashMap<u32, TextureId>,
 
     device: ash::Device,
 
@@ -101,7 +103,8 @@ impl TextureStore {
             descriptor_pool,
             descriptor_set_layout,
             descriptor_sets,
-            dirty: false,
+            dirty_indices: HashSet::new(),
+            desc_to_tex: HashMap::new(),
             device: device.clone(),
             retired_images: Vec::new(),
             pending_loads: Vec::new(),
@@ -145,7 +148,8 @@ impl TextureStore {
 
         let id = self.textures.insert(gpu_tex);
         self.placeholder_id = Some(id);
-        self.dirty = true;
+        self.desc_to_tex.insert(desc_idx, id);
+        self.dirty_indices.insert(desc_idx);
         Ok(())
     }
 
@@ -174,7 +178,8 @@ impl TextureStore {
             override_view: None,
         };
         let id = self.textures.insert(gpu_tex);
-        self.dirty = true;
+        self.desc_to_tex.insert(desc_idx, id);
+        self.dirty_indices.insert(desc_idx);
         Ok(id)
     }
 
@@ -191,9 +196,10 @@ impl TextureStore {
         }
         let new_image = upload_image_to_gpu(gpu, width, height, data)?;
         let gpu_tex = self.textures.get_mut(id).unwrap();
+        let desc_idx = gpu_tex.descriptor_index;
         let old_image = std::mem::replace(&mut gpu_tex.image, new_image);
         self.retired_images.push(old_image);
-        self.dirty = true;
+        self.dirty_indices.insert(desc_idx);
         Ok(())
     }
 
@@ -219,7 +225,8 @@ impl TextureStore {
 
         let id = self.textures.insert(gpu_tex);
         self.path_cache.insert(path.clone(), id);
-        self.dirty = true;
+        self.desc_to_tex.insert(desc_idx, id);
+        self.dirty_indices.insert(desc_idx);
 
         let task = pool.spawn_task(move || {
             yumeri_image::Image::load(&path).map_err(|e| e.to_string())
@@ -264,9 +271,10 @@ impl TextureStore {
                         };
 
                     if let Some(gpu_tex) = self.textures.get_mut(id) {
+                        let desc_idx = gpu_tex.descriptor_index;
                         let old_image = std::mem::replace(&mut gpu_tex.image, image);
                         self.retired_images.push(old_image);
-                        self.dirty = true;
+                        self.dirty_indices.insert(desc_idx);
                     }
                 }
                 TaskStatus::Failed => {
@@ -281,27 +289,28 @@ impl TextureStore {
     }
 
     pub fn flush_descriptors(&mut self, _frame_index: usize) {
-        if !self.dirty {
+        if self.dirty_indices.is_empty() {
             return;
         }
 
-        // Collect all image infos and descriptor indices first
+        // Collect image infos only for dirty descriptor indices via reverse map
         let entries: Vec<(u32, vk::DescriptorImageInfo)> = self
-            .textures
+            .dirty_indices
             .iter()
-            .map(|(_, gpu_tex)| {
-                (
-                    gpu_tex.descriptor_index,
+            .filter_map(|&desc_idx| {
+                let tex_id = self.desc_to_tex.get(&desc_idx)?;
+                let gpu_tex = self.textures.get(*tex_id)?;
+                Some((
+                    desc_idx,
                     vk::DescriptorImageInfo::default()
                         .sampler(gpu_tex.sampler)
                         .image_view(gpu_tex.override_view.unwrap_or(gpu_tex.image.view()))
                         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
-                )
+                ))
             })
             .collect();
 
         for &set in &self.descriptor_sets {
-            // Batch all writes for this set
             let writes: Vec<vk::WriteDescriptorSet> = entries
                 .iter()
                 .map(|(desc_idx, info)| {
@@ -319,9 +328,8 @@ impl TextureStore {
             }
         }
 
-        // Now safe to drop retired images - all descriptor sets have been updated
         self.retired_images.clear();
-        self.dirty = false;
+        self.dirty_indices.clear();
     }
 
     /// Record a staging buffer -> image copy on the given command buffer.
@@ -427,7 +435,7 @@ impl TextureStore {
         if let Some(gpu_tex) = self.textures.get_mut(id) {
             if gpu_tex.override_view != Some(view) {
                 gpu_tex.override_view = Some(view);
-                self.dirty = true;
+                self.dirty_indices.insert(gpu_tex.descriptor_index);
             }
         }
     }
@@ -442,6 +450,7 @@ impl TextureStore {
     pub fn remove(&mut self, id: TextureId) {
         self.path_cache.retain(|_, v| *v != id);
         if let Some(gpu_tex) = self.textures.remove(id) {
+            self.desc_to_tex.remove(&gpu_tex.descriptor_index);
             self.free_descriptor_index(gpu_tex.descriptor_index);
             // Don't destroy default_sampler as it's shared
             if gpu_tex.sampler != self.default_sampler {

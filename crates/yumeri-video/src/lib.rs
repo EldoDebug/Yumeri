@@ -1,6 +1,3 @@
-// Workaround: rustc 1.94 ICE in `check_mod_deathness`
-#![allow(dead_code)]
-
 pub(crate) mod clock;
 pub(crate) mod decode;
 pub(crate) mod demux;

@@ -12,7 +12,7 @@ pub use cache::{AudioCache, AudioId, LoadStatus};
 pub use effect::{AudioEffect, EffectChain};
 pub use effects::{LowPass, LowPassHandle};
 pub use error::{AudioError, Result};
-pub use player::{AudioHandle, AudioPlayer, PlaybackState};
+pub use player::{AudioHandle, AudioPlayer, PlaybackState, StreamChunk, StreamingAudioHandle};
 pub use sample_format::SampleFormat;
 
 #[cfg(test)]

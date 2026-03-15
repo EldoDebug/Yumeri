@@ -91,5 +91,4 @@ pub struct WidgetProps {
     pub text_color: Option<Color>,
     pub texture_id: Option<TextureId>,
     pub scroll_offset: Option<[f32; 2]>,
-    pub max_width: Option<f32>,
 }

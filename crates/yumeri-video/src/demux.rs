@@ -22,6 +22,7 @@ pub(crate) struct Demuxer {
     video_time_base: AVRational,
     video_codecpar: AVCodecParameters,
     audio_codecpar: Option<AVCodecParameters>,
+    #[allow(dead_code)] // Reserved for future A/V sync improvements
     audio_time_base: AVRational,
     duration_secs: f64,
     video_width: u32,
@@ -131,6 +132,7 @@ impl Demuxer {
         self.video_time_base
     }
 
+    #[allow(dead_code)] // Reserved for future A/V sync improvements
     pub fn audio_time_base(&self) -> AVRational {
         self.audio_time_base
     }

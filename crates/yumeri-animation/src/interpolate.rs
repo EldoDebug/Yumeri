@@ -1,5 +1,5 @@
 /// A type that can be linearly interpolated.
-pub trait Interpolate: Clone + Send + Sync + 'static {
+pub trait Interpolate: Clone + PartialEq + Send + Sync + 'static {
     fn lerp(&self, target: &Self, t: f32) -> Self;
 }
 

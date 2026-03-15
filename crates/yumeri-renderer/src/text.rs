@@ -62,6 +62,11 @@ impl LayoutGlyph {
 struct LayoutCacheKey(u64);
 
 fn compute_layout_key(font: &Font, text: &str, style: &TextStyle) -> LayoutCacheKey {
+    LayoutCacheKey(hash_text_style_core(font, text, style))
+}
+
+/// Hash all fields that affect text layout and shaping (excluding color).
+fn hash_text_style_core(font: &Font, text: &str, style: &TextStyle) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     font.id().hash(&mut hasher);
     text.hash(&mut hasher);
@@ -71,7 +76,18 @@ fn compute_layout_key(font: &Font, text: &str, style: &TextStyle) -> LayoutCache
     style.wrap.hash(&mut hasher);
     style.alignment.hash(&mut hasher);
     style.font_attrs.hash(&mut hasher);
-    LayoutCacheKey(hasher.finish())
+    hasher.finish()
+}
+
+/// Fingerprint covering layout + visual appearance (includes color).
+pub(crate) fn compute_text_fingerprint(font: &Font, text: &str, style: &TextStyle) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    hash_text_style_core(font, text, style).hash(&mut hasher);
+    style.color.r.to_bits().hash(&mut hasher);
+    style.color.g.to_bits().hash(&mut hasher);
+    style.color.b.to_bits().hash(&mut hasher);
+    style.color.a.to_bits().hash(&mut hasher);
+    hasher.finish()
 }
 
 pub(crate) struct LayoutCache {

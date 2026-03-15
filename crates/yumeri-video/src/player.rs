@@ -6,7 +6,9 @@ use rsmpeg::avcodec::AVCodecContext;
 use rsmpeg::avutil::AVFrame;
 use rsmpeg::error::RsmpegError;
 use rsmpeg::ffi;
-use yumeri_audio::{Audio, AudioHandle, AudioPlayer, PlaybackState, SampleFormat};
+use yumeri_audio::{
+    AudioHandle, AudioPlayer, PlaybackState, StreamChunk, StreamingAudioHandle,
+};
 
 use crate::clock::PresentationClock;
 use crate::decode::{self, VulkanDeviceInfo};
@@ -49,25 +51,26 @@ impl VideoPlayer {
     ) -> Result<VideoHandle> {
         let path = path.as_ref().to_path_buf();
 
-        let mut demuxer = Demuxer::open(&path)?;
+        let demuxer = Demuxer::open(&path)?;
         let width = demuxer.video_width();
         let height = demuxer.video_height();
         let frame_rate = demuxer.video_frame_rate();
         let duration_us = (demuxer.duration_secs() * 1_000_000.0) as u64;
 
-        // Pre-decode audio track if available
-        let audio_handle = if demuxer.has_audio() {
-            match pre_decode_audio(&mut demuxer, volume) {
-                Ok(ah) => Some(ah),
+        // Start streaming audio if available
+        let (audio_handle, audio_stream, audio_tx) = if demuxer.has_audio() {
+            match start_audio_stream(&demuxer, volume) {
+                Ok((handle, tx)) => {
+                    let ah: AudioHandle = handle.clone().into();
+                    (Some(ah), Some(handle), Some(tx))
+                }
                 Err(e) => {
-                    log::warn!("Failed to decode audio: {e}");
-                    // Seek back to start in case we partially consumed packets
-                    let _ = demuxer.seek(0);
-                    None
+                    log::warn!("Failed to start audio stream: {e}");
+                    (None, None, None)
                 }
             }
         } else {
-            None
+            (None, None, None)
         };
 
         let state = Arc::new(SharedState {
@@ -91,14 +94,16 @@ impl VideoPlayer {
         std::thread::Builder::new()
             .name("yumeri-video-decode".into())
             .spawn(move || {
-                decode_thread(
+                decode_thread(DecodeThreadArgs {
                     demuxer,
-                    thread_audio,
-                    thread_state,
+                    audio_handle: thread_audio,
+                    state: thread_state,
                     frame_tx,
                     drop_rx,
                     vulkan_info,
-                );
+                    audio_tx,
+                    audio_stream,
+                });
             })
             .map_err(|e| VideoError::Playback(format!("failed to spawn decode thread: {e}")))?;
 
@@ -113,15 +118,15 @@ impl VideoPlayer {
     }
 }
 
-/// Pre-decode the entire audio track from the demuxer into a PCM buffer,
-/// then seek the demuxer back to 0 so the video decode thread can start fresh.
-fn pre_decode_audio(demuxer: &mut Demuxer, volume: f32) -> Result<AudioHandle> {
+/// Start an audio stream that will be fed incrementally by the decode thread.
+/// Returns the streaming handle and a sender for pushing decoded audio chunks.
+fn start_audio_stream(
+    demuxer: &Demuxer,
+    volume: f32,
+) -> Result<(StreamingAudioHandle, mpsc::SyncSender<StreamChunk>)> {
     let audio_codecpar = demuxer
         .audio_codecpar()
-        .ok_or_else(|| VideoError::Playback("no audio track".into()))?
-        .clone();
-
-    let mut audio_decoder = create_decoder(&audio_codecpar, "audio")?;
+        .ok_or_else(|| VideoError::Playback("no audio track".into()))?;
 
     let sample_rate = audio_codecpar.sample_rate as u32;
     let channels = audio_codecpar.ch_layout.nb_channels as u16;
@@ -130,55 +135,22 @@ fn pre_decode_audio(demuxer: &mut Demuxer, volume: f32) -> Result<AudioHandle> {
         return Err(VideoError::Playback("invalid audio parameters".into()));
     }
 
-    let mut all_samples: Vec<f32> = Vec::new();
+    // ~200ms of buffered chunks at source rate
+    let chunk_capacity = 16;
+    let (tx, rx) = mpsc::sync_channel::<StreamChunk>(chunk_capacity);
 
-    // Read all packets, decode only audio ones
-    loop {
-        match demuxer.read_packet()? {
-            DemuxPacket::Audio(pkt) => {
-                audio_decoder
-                    .send_packet(Some(&pkt))
-                    .map_err(|e| VideoError::Decode(format!("audio send_packet: {e}")))?;
-                drain_audio_frames(&mut audio_decoder, channels as usize, &mut all_samples);
-            }
-            DemuxPacket::Video(_) => continue,
-            DemuxPacket::Eof => break,
-        }
-    }
-
-    // Flush remaining frames from the decoder
-    let _ = audio_decoder.send_packet(None);
-    drain_audio_frames(&mut audio_decoder, channels as usize, &mut all_samples);
-
-    // Seek back to start for video decode
-    demuxer.seek(0)?;
-
-    if all_samples.is_empty() {
-        return Err(VideoError::Playback("no audio samples decoded".into()));
-    }
+    let player = AudioPlayer::new().map_err(|e| VideoError::Playback(e.to_string()))?;
+    let handle = player
+        .play_streaming(rx, channels, sample_rate, volume)
+        .map_err(|e| VideoError::Playback(e.to_string()))?;
 
     log::info!(
-        "Pre-decoded {} audio samples ({:.1}s, {}ch, {}Hz)",
-        all_samples.len(),
-        all_samples.len() as f64 / (sample_rate as f64 * channels as f64),
+        "Started audio stream ({}ch, {}Hz)",
         channels,
         sample_rate,
     );
 
-    // Reinterpret Vec<f32> as Vec<u8> without copying (f32 is already LE on LE platforms)
-    let (ptr, len, cap) = {
-        let mut samples = std::mem::ManuallyDrop::new(all_samples);
-        (samples.as_mut_ptr(), samples.len(), samples.capacity())
-    };
-    let data = unsafe { Vec::from_raw_parts(ptr as *mut u8, len * 4, cap * 4) };
-    let audio = Audio::from_raw(data, sample_rate, channels, SampleFormat::F32);
-
-    let player = AudioPlayer::new().map_err(|e| VideoError::Playback(e.to_string()))?;
-    let handle = player
-        .play_with(&audio, volume, false)
-        .map_err(|e| VideoError::Playback(e.to_string()))?;
-
-    Ok(handle)
+    Ok((handle, tx))
 }
 
 fn drain_audio_frames(decoder: &mut AVCodecContext, channels: usize, output: &mut Vec<f32>) {
@@ -301,14 +273,62 @@ fn drain_decoded_frames(
     }
 }
 
-fn decode_thread(
-    mut demuxer: Demuxer,
+struct DecodeThreadArgs {
+    demuxer: Demuxer,
     audio_handle: Option<AudioHandle>,
     state: Arc<SharedState>,
     frame_tx: mpsc::SyncSender<VideoFrame>,
     drop_rx: mpsc::Receiver<()>,
     vulkan_info: Option<VulkanDeviceInfo>,
+    audio_tx: Option<mpsc::SyncSender<StreamChunk>>,
+    audio_stream: Option<StreamingAudioHandle>,
+}
+
+fn flush_decoders(
+    video_decoder: &mut Box<dyn decode::DecoderBackend>,
+    audio_decoder: &mut Option<AVCodecContext>,
+    audio_stream: &Option<StreamingAudioHandle>,
 ) {
+    video_decoder.flush();
+    if let Some(dec) = audio_decoder.as_mut() {
+        unsafe { ffi::avcodec_flush_buffers(dec.as_mut_ptr()); }
+    }
+    if let Some(stream) = audio_stream.as_ref() {
+        stream.flush();
+    }
+}
+
+fn decode_and_send_audio(
+    dec: &mut AVCodecContext,
+    tx: &mpsc::SyncSender<StreamChunk>,
+    generation: u64,
+    channels: usize,
+    samples_buf: &mut Vec<f32>,
+) {
+    samples_buf.clear();
+    drain_audio_frames(dec, channels, samples_buf);
+    if !samples_buf.is_empty() {
+        let chunk = StreamChunk {
+            samples: std::mem::take(samples_buf),
+            generation,
+        };
+        if tx.try_send(chunk).is_err() {
+            log::debug!("audio chunk dropped: channel full");
+        }
+    }
+}
+
+fn decode_thread(args: DecodeThreadArgs) {
+    let DecodeThreadArgs {
+        mut demuxer,
+        audio_handle,
+        state,
+        frame_tx,
+        drop_rx,
+        vulkan_info,
+        audio_tx,
+        audio_stream,
+    } = args;
     let video_time_base = demuxer.video_time_base();
     let video_codecpar = demuxer.video_codecpar().clone();
 
@@ -321,10 +341,30 @@ fn decode_thread(
         }
     };
 
+    // Set up audio decoder for streaming
+    let mut audio_decoder = if audio_tx.is_some() {
+        demuxer.audio_codecpar().and_then(|cp| {
+            match create_decoder(cp, "audio") {
+                Ok(dec) => Some(dec),
+                Err(e) => {
+                    log::warn!("Failed to create audio decoder for streaming: {e}");
+                    None
+                }
+            }
+        })
+    } else {
+        None
+    };
+    let audio_channels = demuxer
+        .audio_codecpar()
+        .map(|cp| cp.ch_layout.nb_channels as usize)
+        .unwrap_or(0);
+
     let mut clock = PresentationClock::new(audio_handle.clone());
     let frame_interval = 1.0 / state.frame_rate.max(1.0);
     let mut was_paused = false;
     let mut eof_reached = false;
+    let mut audio_samples_buf = Vec::new();
 
     loop {
         // Check if all handles are dropped (sender side disconnected)
@@ -355,7 +395,7 @@ fn decode_thread(
                 log::error!("Restart seek failed: {e}");
                 break;
             }
-            video_decoder.flush();
+            flush_decoders(&mut video_decoder, &mut audio_decoder, &audio_stream);
             clock.reset(0.0);
             state.position_us.store(0, Ordering::Relaxed);
             eof_reached = false;
@@ -368,7 +408,7 @@ fn decode_thread(
             if let Err(e) = demuxer.seek(clamped) {
                 log::error!("Seek failed: {e}");
             } else {
-                video_decoder.flush();
+                flush_decoders(&mut video_decoder, &mut audio_decoder, &audio_stream);
                 clock.reset(clamped as f64 / 1_000_000.0);
                 state.position_us.store(clamped as u64, Ordering::Relaxed);
             }
@@ -404,11 +444,26 @@ fn decode_thread(
                     return;
                 }
             }
-            Ok(DemuxPacket::Audio(_pkt)) => {
-                // Audio is pre-decoded before thread start; skip audio packets here.
+            Ok(DemuxPacket::Audio(pkt)) => {
+                if let (Some(dec), Some(tx), Some(stream)) =
+                    (&mut audio_decoder, &audio_tx, &audio_stream)
+                {
+                    if dec.send_packet(Some(&pkt)).is_ok() {
+                        decode_and_send_audio(dec, tx, stream.generation(), audio_channels, &mut audio_samples_buf);
+                    }
+                }
             }
             Ok(DemuxPacket::Eof) => {
                 let _ = video_decoder.send_eof();
+
+                // Flush remaining audio frames
+                if let (Some(dec), Some(tx), Some(stream)) =
+                    (&mut audio_decoder, &audio_tx, &audio_stream)
+                {
+                    let _ = dec.send_packet(None);
+                    decode_and_send_audio(dec, tx, stream.generation(), audio_channels, &mut audio_samples_buf);
+                }
+
                 if drain_decoded_frames(
                     &mut video_decoder,
                     &state,
@@ -424,7 +479,7 @@ fn decode_thread(
                         log::error!("Loop seek failed: {e}");
                         break;
                     }
-                    video_decoder.flush();
+                    flush_decoders(&mut video_decoder, &mut audio_decoder, &audio_stream);
                     clock.reset(0.0);
                     state.position_us.store(0, Ordering::Relaxed);
                 } else {

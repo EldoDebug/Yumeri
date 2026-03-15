@@ -36,11 +36,6 @@ impl DrawBatch {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn required_buffer_size(&self) -> u64 {
-        (self.shapes.len() * FLOATS_PER_INSTANCE * size_of::<f32>()) as u64
-    }
-
     pub fn clear(&mut self) {
         self.shapes.clear();
     }
