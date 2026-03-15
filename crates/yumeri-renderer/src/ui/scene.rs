@@ -200,7 +200,14 @@ impl Scene {
 
         if let Some(node) = self.nodes.get(id) {
             if node.text_fingerprint == fingerprint && !node.text_glyph_children.is_empty() {
-                return;
+                // Verify glyph children have textures (atlas may not have been
+                // flushed to GPU when they were first created)
+                let has_textures = node.text_glyph_children.first()
+                    .and_then(|&cid| self.nodes.get(cid))
+                    .is_some_and(|c| c.texture.is_some());
+                if has_textures {
+                    return;
+                }
             }
         }
 
