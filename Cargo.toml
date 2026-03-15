@@ -3,6 +3,8 @@ resolver = "2"
 members = ["crates/*", "examples/*"]
 # yumeri-compositor depends on wayland/xkbcommon (Linux-only).
 # Exclude it from default builds so `cargo build`/`cargo clippy` works on all platforms.
+# Note: `cargo clippy --workspace` includes ALL members. Use the default target
+# (no --workspace flag) or explicit -p flags to avoid pulling in Linux-only crates.
 default-members = [
     "crates/yumeri-animation",
     "crates/yumeri-app",

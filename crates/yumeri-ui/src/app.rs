@@ -50,7 +50,7 @@ impl<C: Component> UiApp<C> {
         if let Some(create) = self.create.take() {
             let component = create();
             mount_root_component(&mut self.tree, component);
-            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache);
+            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache, true);
         }
     }
 
@@ -75,16 +75,14 @@ impl<C: Component> UiApp<C> {
                 for &owner_ffi in self.tree.animator.changed_owners() {
                     let node_id =
                         UiNodeId::from(slotmap::KeyData::from_ffi(owner_ffi));
-                    if self.tree.nodes.contains_key(node_id)
-                        && !self.tree.dirty_components.contains(&node_id)
-                    {
-                        self.tree.dirty_components.push(node_id);
+                    if self.tree.nodes.contains_key(node_id) {
+                        self.tree.dirty_components.insert(node_id);
                     }
                 }
             }
         }
 
-        // Rebuild dirty components
+        // Rebuild dirty components (reconciler sets needs_layout / needs_sync)
         if self.tree.needs_rebuild {
             // Global rebuild: re-render from root
             if let Some(root) = self.tree.root {
@@ -92,20 +90,22 @@ impl<C: Component> UiApp<C> {
             }
             self.tree.needs_rebuild = false;
             self.tree.dirty_components.clear();
-            self.tree.needs_layout = true;
         } else if !self.tree.dirty_components.is_empty() {
             // Granular rebuild: only re-render components whose state changed
             let dirty = std::mem::take(&mut self.tree.dirty_components);
             for comp_id in dirty {
                 rebuild_component(&mut self.tree, comp_id);
             }
-            self.tree.needs_layout = true;
         }
 
-        // Sync to scene (includes text rendering)
+        // Sync to scene: layout recomputation only when layout-affecting properties changed
         if self.tree.needs_layout {
-            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache);
+            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache, true);
             self.tree.needs_layout = false;
+            self.tree.needs_sync = false;
+        } else if self.tree.needs_sync {
+            sync_to_scene(&mut self.tree, scene, self.font.as_mut(), glyph_cache, false);
+            self.tree.needs_sync = false;
         }
     }
 

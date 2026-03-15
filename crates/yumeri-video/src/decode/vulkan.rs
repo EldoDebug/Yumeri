@@ -236,7 +236,7 @@ impl DecoderBackend for VulkanDecoder {
         };
 
         let format = unsafe { (*frame.as_ptr()).format };
-        if format != ffi::AV_PIX_FMT_VULKAN as i32 {
+        if format != ffi::AV_PIX_FMT_VULKAN {
             // FFmpeg didn't produce Vulkan frames — fall back to CPU conversion
             return self.decode_sw_fallback(&frame);
         }

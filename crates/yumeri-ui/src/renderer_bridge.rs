@@ -15,6 +15,7 @@ pub(crate) fn sync_to_scene(
     scene: &mut Scene,
     mut font: Option<&mut yumeri_font::Font>,
     mut glyph_cache: Option<&mut yumeri_renderer::texture::glyph_cache::GlyphCache>,
+    recompute_layout: bool,
 ) {
     // Remove scene nodes orphaned by reconciliation
     for scene_id in tree.pending_scene_removals.drain(..) {
@@ -26,24 +27,26 @@ pub(crate) fn sync_to_scene(
         None => return,
     };
 
-    let available = taffy::prelude::Size {
-        width: taffy::prelude::AvailableSpace::Definite(tree.viewport_size.0),
-        height: taffy::prelude::AvailableSpace::Definite(tree.viewport_size.1),
-    };
-
     let root_taffy = match tree.nodes.get(root).map(|n| n.taffy_node) {
         Some(t) => t,
         None => return,
     };
 
-    // Compute taffy layout with text measurement (split borrows: nodes + taffy).
-    // A per-pass cache avoids redundant shaping when taffy measures the same node
-    // multiple times with identical constraints.
-    //
-    // When glyph_cache is available, measurement populates the renderer's
-    // layout cache so the subsequent render phase gets a cache hit and
-    // avoids redundant text shaping.
-    {
+    // Only recompute taffy layout when layout-affecting properties changed.
+    // Visual-only changes (opacity, color, translate, etc.) reuse cached layout.
+    if recompute_layout {
+        let available = taffy::prelude::Size {
+            width: taffy::prelude::AvailableSpace::Definite(tree.viewport_size.0),
+            height: taffy::prelude::AvailableSpace::Definite(tree.viewport_size.1),
+        };
+
+        // Compute taffy layout with text measurement (split borrows: nodes + taffy).
+        // A per-pass cache avoids redundant shaping when taffy measures the same node
+        // multiple times with identical constraints.
+        //
+        // When glyph_cache is available, measurement populates the renderer's
+        // layout cache so the subsequent render phase gets a cache hit and
+        // avoids redundant text shaping.
         let nodes = &tree.nodes;
         let taffy = &mut tree.taffy;
         // SAFETY: pointer used only within the synchronous compute_layout_with_measure
@@ -234,6 +237,11 @@ fn sync_node_recursive(
             is_text: node.widget_type.is_text_bearing(),
         }
     };
+
+    // Cache absolute bounds for hit testing (avoids taffy.layout() in hot path)
+    if let Some(node) = tree.nodes.get_mut(node_id) {
+        node.cached_bounds = Some([info.abs_x, info.abs_y, info.w, info.h]);
+    }
 
     if !info.visible || info.w <= 0.0 || info.h <= 0.0 {
         remove_scene_nodes_recursive(tree, scene, node_id);

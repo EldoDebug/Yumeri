@@ -2,16 +2,15 @@ use crate::tree::{UiNodeId, UiTree};
 
 pub(crate) fn hit_test(tree: &UiTree, x: f32, y: f32) -> Option<UiNodeId> {
     let root = tree.root?;
-    hit_test_recursive(tree, root, x, y, 0.0, 0.0)
+    hit_test_recursive(tree, root, x, y)
 }
 
+/// Uses cached absolute bounds from last sync to avoid per-call taffy.layout() overhead.
 fn hit_test_recursive(
     tree: &UiTree,
     node_id: UiNodeId,
     x: f32,
     y: f32,
-    parent_x: f32,
-    parent_y: f32,
 ) -> Option<UiNodeId> {
     let node = tree.nodes.get(node_id)?;
 
@@ -19,11 +18,7 @@ fn hit_test_recursive(
         return None;
     }
 
-    let layout = tree.taffy.layout(node.taffy_node).ok()?;
-    let abs_x = parent_x + layout.location.x;
-    let abs_y = parent_y + layout.location.y;
-    let w = layout.size.width;
-    let h = layout.size.height;
+    let [abs_x, abs_y, w, h] = node.cached_bounds?;
 
     // AABB test
     if x < abs_x || x > abs_x + w || y < abs_y || y > abs_y + h {
@@ -31,12 +26,8 @@ fn hit_test_recursive(
     }
 
     // Check children in reverse order (last drawn = topmost)
-    let scroll_offset = node.props.scroll_offset.unwrap_or([0.0, 0.0]);
-    let child_x = abs_x + scroll_offset[0];
-    let child_y = abs_y + scroll_offset[1];
-
     for &child_id in node.children.iter().rev() {
-        if let Some(hit) = hit_test_recursive(tree, child_id, x, y, child_x, child_y) {
+        if let Some(hit) = hit_test_recursive(tree, child_id, x, y) {
             return Some(hit);
         }
     }
@@ -47,8 +38,6 @@ fn hit_test_recursive(
 
 #[allow(dead_code)]
 pub(crate) fn get_node_bounds(tree: &UiTree, node_id: UiNodeId) -> Option<(f32, f32, f32, f32)> {
-    let (abs_x, abs_y) = tree.compute_absolute_position(node_id)?;
-    let node = tree.nodes.get(node_id)?;
-    let layout = tree.taffy.layout(node.taffy_node).ok()?;
-    Some((abs_x, abs_y, layout.size.width, layout.size.height))
+    let [abs_x, abs_y, w, h] = tree.nodes.get(node_id)?.cached_bounds?;
+    Some((abs_x, abs_y, w, h))
 }

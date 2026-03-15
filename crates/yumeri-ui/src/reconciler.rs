@@ -31,6 +31,7 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
     }
 
     let mut new_child_ids = Vec::with_capacity(new_elements.len());
+    let mut structure_changed = false;
 
     for (new_idx, element) in new_elements.into_iter().enumerate() {
         let new_key = element
@@ -51,6 +52,26 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                         .unwrap_or(false);
 
                     if type_matches {
+                        // Detect what changed before overwriting
+                        let (layout_changed, any_changed) = tree
+                            .nodes
+                            .get(old_id)
+                            .map(|node| {
+                                let lc = !node.style.layout_eq(&widget_elem.style)
+                                    || !node.props.layout_eq(&widget_elem.props);
+                                let ac = lc
+                                    || !node.style.visual_eq(&widget_elem.style)
+                                    || node.props != widget_elem.props;
+                                (lc, ac)
+                            })
+                            .unwrap_or((false, false));
+
+                        if layout_changed {
+                            tree.needs_layout = true;
+                        } else if any_changed {
+                            tree.needs_sync = true;
+                        }
+
                         // Update existing node
                         if let Some(node) = tree.nodes.get_mut(old_id) {
                             node.style = widget_elem.style;
@@ -58,17 +79,21 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                             node.event_handlers = widget_elem.event_handlers;
                             node.focusable = widget_elem.focusable;
 
-                            let taffy_style = crate::layout::to_taffy_style(&node.style);
-                            let taffy_node = node.taffy_node;
-                            tree.taffy
-                                .set_style(taffy_node, taffy_style)
-                                .expect("taffy set_style");
+                            // Only update taffy when layout-affecting styles changed
+                            if layout_changed {
+                                let taffy_style = crate::layout::to_taffy_style(&node.style);
+                                let taffy_node = node.taffy_node;
+                                tree.taffy
+                                    .set_style(taffy_node, taffy_style)
+                                    .expect("taffy set_style");
+                            }
                         }
 
                         reconcile(tree, Some(old_id), widget_elem.children);
                         new_child_ids.push(old_id);
                     } else {
                         // Type mismatch: remove old, mount new
+                        structure_changed = true;
                         tree.remove_node(old_id);
                         let wt = widget_elem.widget_type;
                         let new_id = mount_widget(tree, parent, wt, widget_elem, Some(new_key));
@@ -76,6 +101,7 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                     }
                 } else {
                     // No match: mount new
+                    structure_changed = true;
                     let wt = widget_elem.widget_type;
                     let new_id = mount_widget(tree, parent, wt, widget_elem, Some(new_key));
                     new_child_ids.push(new_id);
@@ -94,11 +120,13 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
                         rebuild_component(tree, old_id);
                         new_child_ids.push(old_id);
                     } else {
+                        structure_changed = true;
                         tree.remove_node(old_id);
                         let new_id = mount_component(tree, parent, comp_elem.create, Some(new_key));
                         new_child_ids.push(new_id);
                     }
                 } else {
+                    structure_changed = true;
                     let new_id = mount_component(tree, parent, comp_elem.create, Some(new_key));
                     new_child_ids.push(new_id);
                 }
@@ -107,34 +135,44 @@ pub(crate) fn reconcile(tree: &mut UiTree, parent: Option<UiNodeId>, new_element
     }
 
     // Remove remaining old nodes (remove_node handles unmounting)
-    for (_, old_id) in old_by_key {
-        tree.remove_node(old_id);
-    }
-
-    // Update parent's children list and sync taffy
-    match parent {
-        Some(pid) => {
-            // Build taffy children from new_child_ids before moving it
-            let taffy_children: Vec<_> = new_child_ids
-                .iter()
-                .filter_map(|&id| tree.nodes.get(id).map(|n| n.taffy_node))
-                .collect();
-
-            if let Some(parent_node) = tree.nodes.get_mut(pid) {
-                parent_node.children = new_child_ids;
-            }
-            if let Some(parent_taffy) = tree.nodes.get(pid).map(|n| n.taffy_node) {
-                tree.taffy
-                    .set_children(parent_taffy, &taffy_children)
-                    .expect("taffy set_children");
-            }
-        }
-        None => {
-            tree.root = new_child_ids.into_iter().next();
+    if !old_by_key.is_empty() {
+        structure_changed = true;
+        for (_, old_id) in old_by_key {
+            tree.remove_node(old_id);
         }
     }
 
-    tree.needs_layout = true;
+    // Detect children list change (add/remove/reorder)
+    let children_changed = structure_changed
+        || parent
+            .and_then(|pid| tree.nodes.get(pid))
+            .map(|n| n.children != new_child_ids)
+            .unwrap_or(true);
+
+    // Update parent's children list and sync taffy only when changed
+    if children_changed {
+        tree.needs_layout = true;
+        match parent {
+            Some(pid) => {
+                let taffy_children: Vec<_> = new_child_ids
+                    .iter()
+                    .filter_map(|&id| tree.nodes.get(id).map(|n| n.taffy_node))
+                    .collect();
+
+                if let Some(parent_node) = tree.nodes.get_mut(pid) {
+                    parent_node.children = new_child_ids;
+                }
+                if let Some(parent_taffy) = tree.nodes.get(pid).map(|n| n.taffy_node) {
+                    tree.taffy
+                        .set_children(parent_taffy, &taffy_children)
+                        .expect("taffy set_children");
+                }
+            }
+            None => {
+                tree.root = new_child_ids.into_iter().next();
+            }
+        }
+    }
 }
 
 fn mount_widget(
@@ -504,5 +542,146 @@ mod tests {
         // Props should be updated
         assert_eq!(tree.nodes.get(id_b).unwrap().props.text.as_deref(), Some("B2"));
         assert_eq!(tree.nodes.get(id_a).unwrap().props.text.as_deref(), Some("A2"));
+    }
+
+    #[test]
+    fn no_change_sets_neither_dirty_flag() {
+        let mut tree = UiTree::new();
+        let parent = tree.insert_node(
+            WidgetType::Container,
+            Style::default(),
+            WidgetProps::default(),
+            None,
+            false,
+            None,
+        );
+        tree.root = Some(parent);
+
+        let elements = vec![Text::new("Hello").into()];
+        reconcile(&mut tree, Some(parent), elements);
+
+        // Clear flags from initial mount
+        tree.needs_layout = false;
+        tree.needs_sync = false;
+
+        // Reconcile with identical content
+        let elements = vec![Text::new("Hello").into()];
+        reconcile(&mut tree, Some(parent), elements);
+
+        assert!(!tree.needs_layout, "identical reconcile should not set needs_layout");
+        assert!(!tree.needs_sync, "identical reconcile should not set needs_sync");
+    }
+
+    #[test]
+    fn visual_only_change_sets_needs_sync() {
+        let mut tree = UiTree::new();
+        let parent = tree.insert_node(
+            WidgetType::Container,
+            Style::default(),
+            WidgetProps::default(),
+            None,
+            false,
+            None,
+        );
+        tree.root = Some(parent);
+
+        let elements = vec![
+            Container::new().opacity(1.0).into(),
+        ];
+        reconcile(&mut tree, Some(parent), elements);
+
+        tree.needs_layout = false;
+        tree.needs_sync = false;
+
+        // Change only opacity (visual-only property)
+        let elements = vec![
+            Container::new().opacity(0.5).into(),
+        ];
+        reconcile(&mut tree, Some(parent), elements);
+
+        assert!(!tree.needs_layout, "visual-only change should not set needs_layout");
+        assert!(tree.needs_sync, "visual-only change should set needs_sync");
+    }
+
+    #[test]
+    fn layout_change_sets_needs_layout() {
+        let mut tree = UiTree::new();
+        let parent = tree.insert_node(
+            WidgetType::Container,
+            Style::default(),
+            WidgetProps::default(),
+            None,
+            false,
+            None,
+        );
+        tree.root = Some(parent);
+
+        let elements = vec![
+            Container::new().width(100).into(),
+        ];
+        reconcile(&mut tree, Some(parent), elements);
+
+        tree.needs_layout = false;
+        tree.needs_sync = false;
+
+        // Change width (layout-affecting property)
+        let elements = vec![
+            Container::new().width(200).into(),
+        ];
+        reconcile(&mut tree, Some(parent), elements);
+
+        assert!(tree.needs_layout, "layout change should set needs_layout");
+    }
+
+    #[test]
+    fn text_content_change_sets_needs_layout() {
+        let mut tree = UiTree::new();
+        let parent = tree.insert_node(
+            WidgetType::Container,
+            Style::default(),
+            WidgetProps::default(),
+            None,
+            false,
+            None,
+        );
+        tree.root = Some(parent);
+
+        let elements = vec![Text::new("Old").into()];
+        reconcile(&mut tree, Some(parent), elements);
+
+        tree.needs_layout = false;
+        tree.needs_sync = false;
+
+        // Text content change affects layout (text measurement)
+        let elements = vec![Text::new("New text").into()];
+        reconcile(&mut tree, Some(parent), elements);
+
+        assert!(tree.needs_layout, "text content change should set needs_layout");
+    }
+
+    #[test]
+    fn structure_change_sets_needs_layout() {
+        let mut tree = UiTree::new();
+        let parent = tree.insert_node(
+            WidgetType::Container,
+            Style::default(),
+            WidgetProps::default(),
+            None,
+            false,
+            None,
+        );
+        tree.root = Some(parent);
+
+        let elements = vec![Text::new("A").into()];
+        reconcile(&mut tree, Some(parent), elements);
+
+        tree.needs_layout = false;
+        tree.needs_sync = false;
+
+        // Add a second child (structure change)
+        let elements = vec![Text::new("A").into(), Text::new("B").into()];
+        reconcile(&mut tree, Some(parent), elements);
+
+        assert!(tree.needs_layout, "structure change should set needs_layout");
     }
 }

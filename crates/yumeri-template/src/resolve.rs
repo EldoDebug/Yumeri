@@ -142,7 +142,7 @@ fn resolve_node(
         WidgetKind::Ellipse => WidgetType::Ellipse,
     };
 
-    // Collect event handlers for this node
+    // Collect event handlers for this node (swap_remove for O(1) extraction)
     let node_handlers: Vec<(EventKind, AnyCallback)> = {
         let mut handlers = Vec::new();
         let mut i = 0;
@@ -155,8 +155,9 @@ fn resolve_node(
                 _ => false,
             };
             if matches {
-                let (_, kind, cb) = event_handlers.remove(i);
+                let (_, kind, cb) = event_handlers.swap_remove(i);
                 handlers.push((kind, cb));
+                // Don't increment i: swapped element is now at position i
             } else {
                 i += 1;
             }

@@ -184,7 +184,7 @@ fn convert_audio_frame(frame: &AVFrame, channels: usize, output: &mut Vec<f32>) 
     let planes = unsafe { (*frame.as_ptr()).extended_data };
 
     match format {
-        x if x == ffi::AV_SAMPLE_FMT_FLTP as i32 => {
+        x if x == ffi::AV_SAMPLE_FMT_FLTP => {
             for i in 0..nb_samples {
                 for ch in 0..channels {
                     let ptr = unsafe { *planes.add(ch) as *const f32 };
@@ -192,12 +192,12 @@ fn convert_audio_frame(frame: &AVFrame, channels: usize, output: &mut Vec<f32>) 
                 }
             }
         }
-        x if x == ffi::AV_SAMPLE_FMT_FLT as i32 => {
+        x if x == ffi::AV_SAMPLE_FMT_FLT => {
             let ptr = unsafe { *planes as *const f32 };
             let slice = unsafe { std::slice::from_raw_parts(ptr, nb_samples * channels) };
             output.extend_from_slice(slice);
         }
-        x if x == ffi::AV_SAMPLE_FMT_S16P as i32 => {
+        x if x == ffi::AV_SAMPLE_FMT_S16P => {
             for i in 0..nb_samples {
                 for ch in 0..channels {
                     let ptr = unsafe { *planes.add(ch) as *const i16 };
@@ -205,12 +205,12 @@ fn convert_audio_frame(frame: &AVFrame, channels: usize, output: &mut Vec<f32>) 
                 }
             }
         }
-        x if x == ffi::AV_SAMPLE_FMT_S16 as i32 => {
+        x if x == ffi::AV_SAMPLE_FMT_S16 => {
             let ptr = unsafe { *planes as *const i16 };
             let slice = unsafe { std::slice::from_raw_parts(ptr, nb_samples * channels) };
             output.extend(slice.iter().map(|&s| s as f32 / 32768.0));
         }
-        x if x == ffi::AV_SAMPLE_FMT_S32P as i32 => {
+        x if x == ffi::AV_SAMPLE_FMT_S32P => {
             for i in 0..nb_samples {
                 for ch in 0..channels {
                     let ptr = unsafe { *planes.add(ch) as *const i32 };
@@ -218,7 +218,7 @@ fn convert_audio_frame(frame: &AVFrame, channels: usize, output: &mut Vec<f32>) 
                 }
             }
         }
-        x if x == ffi::AV_SAMPLE_FMT_S32 as i32 => {
+        x if x == ffi::AV_SAMPLE_FMT_S32 => {
             let ptr = unsafe { *planes as *const i32 };
             let slice = unsafe { std::slice::from_raw_parts(ptr, nb_samples * channels) };
             output.extend(slice.iter().map(|&s| s as f32 / 2_147_483_648.0));
@@ -452,10 +452,9 @@ fn decode_thread(args: DecodeThreadArgs) {
             Ok(DemuxPacket::Audio(pkt)) => {
                 if let (Some(dec), Some(tx), Some(stream)) =
                     (&mut audio_decoder, &audio_tx, &audio_stream)
+                    && dec.send_packet(Some(&pkt)).is_ok()
                 {
-                    if dec.send_packet(Some(&pkt)).is_ok() {
-                        decode_and_send_audio(dec, tx, stream.generation(), audio_channels, &mut audio_samples_buf);
-                    }
+                    decode_and_send_audio(dec, tx, stream.generation(), audio_channels, &mut audio_samples_buf);
                 }
             }
             Ok(DemuxPacket::Eof) => {

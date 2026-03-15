@@ -36,7 +36,7 @@ impl Demuxer {
 
         let input_ctx = AVFormatContextInput::open(&c_path).map_err(|e| VideoError::Io {
             path: path.to_path_buf(),
-            source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            source: std::io::Error::other(e.to_string()),
         })?;
 
         let (video_idx, _) = input_ctx

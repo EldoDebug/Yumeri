@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use slotmap::{Key, new_key_type, SlotMap};
 use taffy::TaffyTree;
 use yumeri_animation::animator::Animator;
@@ -25,6 +27,8 @@ pub(crate) struct UiNode {
     pub component: Option<ComponentBox>,
     pub focusable: bool,
     pub key: Option<ElementKey>,
+    /// Cached absolute bounds [abs_x, abs_y, width, height] from last sync.
+    pub cached_bounds: Option<[f32; 4]>,
 }
 
 pub struct UiTree {
@@ -34,12 +38,13 @@ pub struct UiTree {
     pub(crate) animator: Animator,
     pub(crate) needs_rebuild: bool,
     pub(crate) needs_layout: bool,
+    pub(crate) needs_sync: bool,
     pub(crate) focus: FocusState,
     pub(crate) viewport_size: (f32, f32),
     pub(crate) cursor_pos: (f32, f32),
     pub(crate) hovered_node: Option<UiNodeId>,
     pub(crate) pending_scene_removals: Vec<SceneNodeId>,
-    pub(crate) dirty_components: Vec<UiNodeId>,
+    pub(crate) dirty_components: HashSet<UiNodeId>,
     pub(crate) template_provider: Option<Box<dyn TemplateProvider>>,
 }
 
@@ -52,12 +57,13 @@ impl UiTree {
             animator: Animator::new(),
             needs_rebuild: true,
             needs_layout: true,
+            needs_sync: false,
             focus: FocusState::new(),
             viewport_size: (800.0, 600.0),
             cursor_pos: (0.0, 0.0),
             hovered_node: None,
             pending_scene_removals: Vec::new(),
-            dirty_components: Vec::new(),
+            dirty_components: HashSet::new(),
             template_provider: None,
         }
     }
@@ -120,6 +126,7 @@ impl UiTree {
             component: None,
             focusable,
             key,
+            cached_bounds: None,
         });
 
         self.taffy
@@ -218,28 +225,12 @@ impl UiTree {
                     }
                 }
                 // Only mark the owning component dirty, not the entire tree
-                if !self.dirty_components.contains(&owner_id) {
-                    self.dirty_components.push(owner_id);
-                }
+                self.dirty_components.insert(owner_id);
                 return true;
             }
         }
 
         false
-    }
-
-    pub(crate) fn compute_absolute_position(&self, node_id: UiNodeId) -> Option<(f32, f32)> {
-        let mut x = 0.0;
-        let mut y = 0.0;
-        let mut current = Some(node_id);
-        while let Some(id) = current {
-            let node = self.nodes.get(id)?;
-            let layout = self.taffy.layout(node.taffy_node).ok()?;
-            x += layout.location.x;
-            y += layout.location.y;
-            current = node.parent;
-        }
-        Some((x, y))
     }
 
     fn find_owner_component(&self, start: UiNodeId) -> Option<UiNodeId> {

@@ -44,6 +44,44 @@ pub struct Style {
     pub transitions: Vec<TransitionDef>,
 }
 
+impl Style {
+    /// Compare layout-affecting properties (everything that feeds into taffy).
+    pub fn layout_eq(&self, other: &Style) -> bool {
+        self.direction == other.direction
+            && self.width == other.width
+            && self.height == other.height
+            && self.min_width == other.min_width
+            && self.min_height == other.min_height
+            && self.max_width == other.max_width
+            && self.max_height == other.max_height
+            && self.padding == other.padding
+            && self.margin == other.margin
+            && self.gap == other.gap
+            && self.flex_grow == other.flex_grow
+            && self.flex_shrink == other.flex_shrink
+            && self.flex_basis == other.flex_basis
+            && self.align_items == other.align_items
+            && self.align_self == other.align_self
+            && self.justify_content == other.justify_content
+            && self.position == other.position
+            && self.inset == other.inset
+    }
+
+    /// Compare visual-only properties (scene sync, no taffy relayout needed).
+    pub fn visual_eq(&self, other: &Style) -> bool {
+        self.background == other.background
+            && self.border_color == other.border_color
+            && self.border_width == other.border_width
+            && self.corner_radius == other.corner_radius
+            && self.opacity == other.opacity
+            && self.visible == other.visible
+            && self.translate == other.translate
+            && self.scale == other.scale
+            && self.rotation == other.rotation
+            && self.transform_origin == other.transform_origin
+    }
+}
+
 impl Default for Style {
     fn default() -> Self {
         Self {

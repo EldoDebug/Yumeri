@@ -83,7 +83,7 @@ impl WidgetType {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WidgetProps {
     pub text: Option<String>,
     pub font_size: Option<f32>,
@@ -91,4 +91,13 @@ pub struct WidgetProps {
     pub text_color: Option<Color>,
     pub texture_id: Option<TextureId>,
     pub scroll_offset: Option<[f32; 2]>,
+}
+
+impl WidgetProps {
+    /// Compare properties that affect text measurement / layout.
+    pub fn layout_eq(&self, other: &WidgetProps) -> bool {
+        self.text == other.text
+            && self.font_size == other.font_size
+            && self.line_height == other.line_height
+    }
 }
